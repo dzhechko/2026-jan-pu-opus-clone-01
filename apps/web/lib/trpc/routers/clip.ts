@@ -160,10 +160,10 @@ export const clipRouter = router({
               text: z.string().max(500),
               style: z
                 .object({
-                  fontFamily: z.string().optional(),
-                  fontSize: z.number().positive().optional(),
-                  fontColor: z.string().optional(),
-                  backgroundColor: z.string().optional(),
+                  fontFamily: z.string().max(100).regex(/^[a-zA-Z0-9\s\-,'"]+$/).optional(),
+                  fontSize: z.number().positive().max(200).optional(),
+                  fontColor: z.string().max(30).regex(/^#[0-9a-fA-F]{3,8}$|^rgba?\(.+\)$/).optional(),
+                  backgroundColor: z.string().max(30).regex(/^#[0-9a-fA-F]{3,8}$|^rgba?\(.+\)$/).optional(),
                   bold: z.boolean().optional(),
                   shadow: z.boolean().optional(),
                 })
@@ -289,7 +289,6 @@ export const clipRouter = router({
           cta: true,
           viralityScore: true,
           status: true,
-          thumbnailPath: true,
         },
       });
 

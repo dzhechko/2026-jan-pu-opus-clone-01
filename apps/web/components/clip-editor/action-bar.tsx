@@ -4,6 +4,7 @@ type ActionBarProps = {
   isDirty: boolean;
   isSaving: boolean;
   isRendering: boolean;
+  isFailed: boolean;
   onSave: () => void;
   onPreview: () => void;
   onReset: () => void;
@@ -13,6 +14,7 @@ export function ActionBar({
   isDirty,
   isSaving,
   isRendering,
+  isFailed,
   onSave,
   onPreview,
   onReset,
@@ -44,6 +46,12 @@ export function ActionBar({
             />
           </svg>
           <span>Рендеринг...</span>
+        </div>
+      )}
+
+      {isFailed && (
+        <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950/30 rounded text-sm text-red-700 dark:text-red-400">
+          <span>Рендеринг не удался. Внесите изменения и сохраните снова.</span>
         </div>
       )}
 

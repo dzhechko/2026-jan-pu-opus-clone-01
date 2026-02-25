@@ -1,7 +1,8 @@
 'use client';
 
-import { type RefObject, useMemo } from 'react';
+import { type RefObject, useMemo, useState } from 'react';
 import type { SubtitleSegment, CTA, ClipFormat } from '@clipmaker/types';
+import { formatDuration } from '@/lib/utils/format';
 
 type VideoPreviewProps = {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -13,6 +14,7 @@ type VideoPreviewProps = {
   clipStartTime: number;
   clipEndTime: number;
   onTimeUpdate: () => void;
+  onVideoError?: () => void;
 };
 
 const FORMAT_ASPECT_RATIOS: Record<ClipFormat, string> = {
@@ -27,12 +29,6 @@ const FORMAT_MAX_DIMENSIONS: Record<ClipFormat, string> = {
   landscape: 'max-h-[50vh] max-w-[90%]',
 };
 
-function formatTimestamp(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 export function VideoPreview({
   videoRef,
   videoSourceUrl,
@@ -43,7 +39,10 @@ export function VideoPreview({
   clipStartTime,
   clipEndTime,
   onTimeUpdate,
+  onVideoError,
 }: VideoPreviewProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+
   const activeSubtitle = useMemo(() => {
     return subtitleSegments.find(
       (seg) => currentTime >= seg.start && currentTime < seg.end,
@@ -71,6 +70,9 @@ export function VideoPreview({
           src={videoSourceUrl}
           className="absolute inset-0 w-full h-full object-contain"
           onTimeUpdate={onTimeUpdate}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onError={onVideoError}
           playsInline
           preload="metadata"
         />
@@ -111,13 +113,11 @@ export function VideoPreview({
           }}
           className="px-3 py-1 rounded bg-secondary hover:bg-secondary/80"
         >
-          {videoRef.current?.paused !== false
-            ? '\u25B6 \u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438'
-            : '\u23F8 \u041F\u0430\u0443\u0437\u0430'}
+          {isPlaying ? '\u23F8 \u041F\u0430\u0443\u0437\u0430' : '\u25B6 \u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438'}
         </button>
         <span>
-          {formatTimestamp(currentTime)} /{' '}
-          {formatTimestamp(clipEndTime - clipStartTime)}
+          {formatDuration(currentTime)} /{' '}
+          {formatDuration(clipEndTime - clipStartTime)}
         </span>
       </div>
     </div>

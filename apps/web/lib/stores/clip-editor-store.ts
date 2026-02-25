@@ -1,5 +1,3 @@
-'use client';
-
 import { create } from 'zustand';
 import type {
   ClipFormat,
@@ -24,7 +22,6 @@ export type ClipData = {
   cta: CTA | null;
   viralityScore: ViralityScore;
   status: ClipStatus;
-  thumbnailPath: string | null;
 };
 
 // ── Store Shape ────────────────────────────────────────────────

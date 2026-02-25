@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
+import { formatDuration } from '@/lib/utils/format';
 
 type TimelineProps = {
   videoDuration: number;
@@ -15,12 +16,6 @@ type TimelineProps = {
 
 const MIN_CLIP_DURATION = 5;
 const MAX_CLIP_DURATION = 180;
-
-function formatTimestamp(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export function Timeline({
   videoDuration,
@@ -39,7 +34,7 @@ export function Timeline({
   const pixelToTime = useCallback(
     (clientX: number): number => {
       const bar = barRef.current;
-      if (!bar) return 0;
+      if (!bar || videoDuration <= 0) return 0;
       const rect = bar.getBoundingClientRect();
       const fraction = Math.max(
         0,
@@ -50,23 +45,29 @@ export function Timeline({
     [videoDuration],
   );
 
-  const timeToPercent = (time: number): number => {
-    return (time / videoDuration) * 100;
-  };
+  const timeToPercent = useCallback(
+    (time: number): number => {
+      if (videoDuration <= 0) return 0;
+      return (time / videoDuration) * 100;
+    },
+    [videoDuration],
+  );
 
   const handlePointerDown = useCallback(
     (target: 'start' | 'end') => (e: React.PointerEvent) => {
       if (disabled) return;
       e.preventDefault();
+      e.stopPropagation();
       setDragTarget(target);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
     [disabled],
   );
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragTarget) return;
+  // Use document-level pointer events during drag for reliable capture
+  useEffect(() => {
+    if (!dragTarget) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
       const time = pixelToTime(e.clientX);
 
       if (dragTarget === 'start') {
@@ -98,22 +99,28 @@ export function Timeline({
         setTooltipText(null);
         onEndTimeChange(time);
       }
-    },
-    [
-      dragTarget,
-      pixelToTime,
-      clipStartTime,
-      clipEndTime,
-      videoDuration,
-      onStartTimeChange,
-      onEndTimeChange,
-    ],
-  );
+    };
 
-  const handlePointerUp = useCallback(() => {
-    setDragTarget(null);
-    setTooltipText(null);
-  }, []);
+    const handlePointerUp = () => {
+      setDragTarget(null);
+      setTooltipText(null);
+    };
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [
+    dragTarget,
+    pixelToTime,
+    clipStartTime,
+    clipEndTime,
+    videoDuration,
+    onStartTimeChange,
+    onEndTimeChange,
+  ]);
 
   const handleBarClick = useCallback(
     (e: React.MouseEvent) => {
@@ -132,19 +139,17 @@ export function Timeline({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs text-muted-foreground px-1">
-        <span>{formatTimestamp(clipStartTime)}</span>
+        <span>{formatDuration(clipStartTime)}</span>
         <span className="font-medium text-foreground">
           Длительность: {Math.round(clipDuration)} сек
         </span>
-        <span>{formatTimestamp(clipEndTime)}</span>
+        <span>{formatDuration(clipEndTime)}</span>
       </div>
 
       <div
         ref={barRef}
         className="relative h-10 bg-muted rounded cursor-pointer select-none"
         onClick={handleBarClick}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
       >
         <div
           className="absolute top-0 bottom-0 bg-primary/20 border-y-2 border-primary"

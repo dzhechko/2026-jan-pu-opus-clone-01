@@ -1,10 +1,17 @@
 import { notFound, redirect } from 'next/navigation';
 import { headers } from 'next/headers';
+import Link from 'next/link';
 import { prisma } from '@clipmaker/db';
 import { generateDownloadUrl } from '@clipmaker/s3';
 import { ClipEditor } from './clip-editor';
 import type { ClipData } from '@/lib/stores/clip-editor-store';
-import type { ViralityScore, SubtitleSegment, CTA, ClipFormat, ClipStatus } from '@clipmaker/types';
+import type {
+  ViralityScore,
+  SubtitleSegment,
+  CTA,
+  ClipFormat,
+  ClipStatus,
+} from '@clipmaker/types';
 
 type PageProps = {
   params: Promise<{ videoId: string; clipId: string }>;
@@ -42,13 +49,7 @@ export default async function ClipEditorPage({ params }: PageProps) {
     notFound();
   }
 
-  // Generate presigned URL for video source playback
   const videoSourceUrl = await generateDownloadUrl(clip.video.filePath);
-
-  // Generate presigned URL for rendered clip (if ready)
-  const clipPreviewUrl = clip.filePath
-    ? await generateDownloadUrl(clip.filePath)
-    : null;
 
   const clipData: ClipData = {
     id: clip.id,
@@ -63,22 +64,24 @@ export default async function ClipEditorPage({ params }: PageProps) {
     cta: (clip.cta as CTA) ?? null,
     viralityScore: clip.viralityScore as ViralityScore,
     status: clip.status as ClipStatus,
-    thumbnailPath: clip.thumbnailPath,
   };
 
   return (
     <div className="flex flex-col h-full">
       <nav className="px-6 py-3 text-sm text-muted-foreground">
-        <a href="/dashboard" className="hover:text-foreground transition-colors">
+        <Link
+          href="/dashboard"
+          className="hover:text-foreground transition-colors"
+        >
           Дашборд
-        </a>
+        </Link>
         <span className="mx-2">/</span>
-        <a
+        <Link
           href={`/dashboard/videos/${videoId}`}
           className="hover:text-foreground transition-colors"
         >
           {clip.video.title}
-        </a>
+        </Link>
         <span className="mx-2">/</span>
         <span className="text-foreground">Редактор клипа</span>
       </nav>
@@ -91,7 +94,6 @@ export default async function ClipEditorPage({ params }: PageProps) {
           durationSeconds: clip.video.durationSeconds,
         }}
         videoSourceUrl={videoSourceUrl}
-        clipPreviewUrl={clipPreviewUrl}
       />
     </div>
   );

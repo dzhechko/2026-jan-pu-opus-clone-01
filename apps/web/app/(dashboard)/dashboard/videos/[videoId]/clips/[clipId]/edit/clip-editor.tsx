@@ -12,6 +12,7 @@ import { Timeline } from '@/components/clip-editor/timeline';
 import { SubtitleEditor } from '@/components/clip-editor/subtitle-editor';
 import { MetadataPanel } from '@/components/clip-editor/metadata-panel';
 import { ActionBar } from '@/components/clip-editor/action-bar';
+import type { ClipFormat, SubtitleSegment, CTA } from '@clipmaker/types';
 
 type ClipEditorProps = {
   clip: ClipData;
@@ -21,22 +22,25 @@ type ClipEditorProps = {
     durationSeconds: number | null;
   };
   videoSourceUrl: string;
-  clipPreviewUrl: string | null;
 };
 
 export function ClipEditor({
   clip: initialClip,
   video,
-  videoSourceUrl,
+  videoSourceUrl: initialVideoSourceUrl,
 }: ClipEditorProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [saveMessage, setSaveMessage] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [videoSrc, setVideoSrc] = useState(initialVideoSourceUrl);
 
   // Create store once per mount with initial data
+  // Empty deps: store is intentionally created once; server re-renders
+  // pass new props but the store updates via markSaved/polling instead
   const useStore = useMemo(
     () => createClipEditorStore(initialClip),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -48,6 +52,17 @@ export function ClipEditor({
   const isDirty = useStore((s) => s.isDirty);
   const isSaving = useStore((s) => s.isSaving);
   const currentTime = useStore((s) => s.currentTime);
+
+  // Extract stable action references
+  const setStartTime = useStore((s) => s.setStartTime);
+  const setEndTime = useStore((s) => s.setEndTime);
+  const setTitle = useStore((s) => s.setTitle);
+  const setDescription = useStore((s) => s.setDescription);
+  const setFormat = useStore((s) => s.setFormat);
+  const setCta = useStore((s) => s.setCta);
+  const updateSubtitleText = useStore((s) => s.updateSubtitleText);
+  const setActiveSubtitleIndex = useStore((s) => s.setActiveSubtitleIndex);
+  const activeSubtitleIndex = useStore((s) => s.activeSubtitleIndex);
 
   // ── tRPC mutation ────────────────────────────────────────
 
@@ -63,7 +78,8 @@ export function ClipEditor({
       } else {
         setSaveMessage({ type: 'success', text: 'Клип сохранён' });
       }
-      setTimeout(() => setSaveMessage(null), 3000);
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 3000);
     },
     onError: (error) => {
       useStore.getState().setIsSaving(false);
@@ -71,13 +87,19 @@ export function ClipEditor({
         type: 'error',
         text: error.message || 'Ошибка сохранения. Попробуйте ещё раз.',
       });
-      setTimeout(() => setSaveMessage(null), 5000);
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 5000);
     },
   });
 
+  // Clean up save timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(saveTimerRef.current);
+  }, []);
+
   // ── Polling for render status ────────────────────────────
 
-  trpc.clip.get.useQuery(
+  const { data: polledClip } = trpc.clip.get.useQuery(
     { id: clip.id },
     {
       enabled: clip.status === 'rendering',
@@ -85,16 +107,32 @@ export function ClipEditor({
     },
   );
 
-  // Watch for render completion and refresh
+  // Watch polling result for render completion or failure
   useEffect(() => {
-    if (
-      clip.status === 'rendering' &&
-      updateFullMutation.data &&
-      updateFullMutation.data.status !== 'rendering'
-    ) {
+    if (!polledClip) return;
+    const storeStatus = useStore.getState().clip.status;
+    if (storeStatus !== 'rendering') return;
+
+    if (polledClip.status === 'ready') {
+      useStore.getState().markSaved({
+        ...useStore.getState().clip,
+        status: 'ready',
+      } as ClipData);
+      setSaveMessage({ type: 'success', text: 'Рендеринг завершён' });
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 3000);
       router.refresh();
+    } else if (polledClip.status === 'failed') {
+      useStore.getState().markSaved({
+        ...useStore.getState().clip,
+        status: 'failed',
+      } as ClipData);
+      setSaveMessage({
+        type: 'error',
+        text: 'Рендеринг не удался. Попробуйте сохранить снова.',
+      });
     }
-  }, [clip.status, updateFullMutation.data, router]);
+  }, [polledClip, useStore, router]);
 
   // ── Save handler ─────────────────────────────────────────
 
@@ -105,25 +143,26 @@ export function ClipEditor({
 
     state.setIsSaving(true);
 
-    const input: Record<string, unknown> = { id: state.clip.id };
     const orig = state.originalClip;
     const curr = state.clip;
 
-    if (curr.title !== orig.title) {
-      input.title = curr.title;
-    }
-    if (curr.description !== orig.description) {
+    const input: {
+      id: string;
+      title?: string;
+      description?: string | null;
+      startTime?: number;
+      endTime?: number;
+      format?: ClipFormat;
+      subtitleSegments?: SubtitleSegment[];
+      cta?: CTA | null;
+    } = { id: curr.id };
+
+    if (curr.title !== orig.title) input.title = curr.title;
+    if (curr.description !== orig.description)
       input.description = curr.description;
-    }
-    if (curr.startTime !== orig.startTime) {
-      input.startTime = curr.startTime;
-    }
-    if (curr.endTime !== orig.endTime) {
-      input.endTime = curr.endTime;
-    }
-    if (curr.format !== orig.format) {
-      input.format = curr.format;
-    }
+    if (curr.startTime !== orig.startTime) input.startTime = curr.startTime;
+    if (curr.endTime !== orig.endTime) input.endTime = curr.endTime;
+    if (curr.format !== orig.format) input.format = curr.format;
     if (
       JSON.stringify(curr.subtitleSegments) !==
       JSON.stringify(orig.subtitleSegments)
@@ -134,7 +173,7 @@ export function ClipEditor({
       input.cta = curr.cta;
     }
 
-    updateFullMutation.mutate(input as Parameters<typeof updateFullMutation.mutate>[0]);
+    updateFullMutation.mutate(input);
   }, [useStore, updateFullMutation]);
 
   // ── Preview handler ──────────────────────────────────────
@@ -190,11 +229,52 @@ export function ClipEditor({
     }
   }, [useStore]);
 
+  // ── Video error handler (presigned URL expiry) ───────────
+
+  const handleVideoError = useCallback(() => {
+    // Try refreshing the page to get new presigned URLs
+    router.refresh();
+    // Update the src to force a reload after refresh
+    setTimeout(() => {
+      setVideoSrc((prev) => {
+        // Append a cache-buster to force reload
+        const url = new URL(prev, window.location.origin);
+        url.searchParams.set('_t', Date.now().toString());
+        return url.toString();
+      });
+    }, 1000);
+  }, [router]);
+
+  // ── Seek handler ─────────────────────────────────────────
+
+  const handleSeek = useCallback((time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  }, []);
+
+  // ── Subtitle select handler ──────────────────────────────
+
+  const handleSubtitleSelect = useCallback(
+    (index: number) => {
+      setActiveSubtitleIndex(index);
+      const segment = useStore.getState().clip.subtitleSegments[index];
+      if (segment && videoRef.current) {
+        videoRef.current.currentTime = segment.start;
+      }
+    },
+    [setActiveSubtitleIndex, useStore],
+  );
+
   // ── Layout ───────────────────────────────────────────────
 
   const isRendering = clip.status === 'rendering';
+  const isFailed = clip.status === 'failed';
   const isEditable = !isRendering && !isSaving;
-  const videoDuration = video.durationSeconds ?? clip.endTime + 60;
+  const videoDuration = Math.max(
+    video.durationSeconds ?? clip.endTime + 60,
+    1,
+  );
 
   return (
     <div className="flex flex-1 gap-6 p-6 overflow-hidden">
@@ -215,7 +295,7 @@ export function ClipEditor({
       <div className="flex flex-col flex-1 gap-4 min-w-0">
         <VideoPreview
           videoRef={videoRef}
-          videoSourceUrl={videoSourceUrl}
+          videoSourceUrl={videoSrc}
           format={clip.format}
           subtitleSegments={clip.subtitleSegments}
           cta={clip.cta}
@@ -223,6 +303,7 @@ export function ClipEditor({
           clipStartTime={clip.startTime}
           clipEndTime={clip.endTime}
           onTimeUpdate={handleTimeUpdate}
+          onVideoError={handleVideoError}
         />
         <Timeline
           videoDuration={videoDuration}
@@ -230,13 +311,9 @@ export function ClipEditor({
           clipEndTime={clip.endTime}
           currentTime={currentTime}
           disabled={!isEditable}
-          onStartTimeChange={useStore.getState().setStartTime}
-          onEndTimeChange={useStore.getState().setEndTime}
-          onSeek={(time) => {
-            if (videoRef.current) {
-              videoRef.current.currentTime = time;
-            }
-          }}
+          onStartTimeChange={setStartTime}
+          onEndTimeChange={setEndTime}
+          onSeek={handleSeek}
         />
       </div>
 
@@ -249,28 +326,23 @@ export function ClipEditor({
           cta={clip.cta}
           viralityScore={clip.viralityScore}
           disabled={!isEditable}
-          onTitleChange={useStore.getState().setTitle}
-          onDescriptionChange={useStore.getState().setDescription}
-          onFormatChange={useStore.getState().setFormat}
-          onCtaChange={useStore.getState().setCta}
+          onTitleChange={setTitle}
+          onDescriptionChange={setDescription}
+          onFormatChange={setFormat}
+          onCtaChange={setCta}
         />
         <SubtitleEditor
           subtitleSegments={clip.subtitleSegments}
-          activeIndex={useStore((s) => s.activeSubtitleIndex)}
+          activeIndex={activeSubtitleIndex}
           disabled={!isEditable}
-          onTextChange={useStore.getState().updateSubtitleText}
-          onSelect={(index) => {
-            useStore.getState().setActiveSubtitleIndex(index);
-            const segment = clip.subtitleSegments[index];
-            if (segment && videoRef.current) {
-              videoRef.current.currentTime = segment.start;
-            }
-          }}
+          onTextChange={updateSubtitleText}
+          onSelect={handleSubtitleSelect}
         />
         <ActionBar
           isDirty={isDirty}
           isSaving={isSaving}
           isRendering={isRendering}
+          isFailed={isFailed}
           onSave={handleSave}
           onPreview={handlePreview}
           onReset={handleReset}

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { SubtitleSegment } from '@clipmaker/types';
+import { formatDuration } from '@/lib/utils/format';
 
 type SubtitleEditorProps = {
   subtitleSegments: SubtitleSegment[];
@@ -10,12 +11,6 @@ type SubtitleEditorProps = {
   onTextChange: (index: number, text: string) => void;
   onSelect: (index: number) => void;
 };
-
-function formatTimestamp(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export function SubtitleEditor({
   subtitleSegments,
@@ -49,15 +44,11 @@ export function SubtitleEditor({
   );
 
   const handleBlur = useCallback(
-    (index: number) => {
-      const segment = subtitleSegments[index];
-      if (segment && segment.text.trim() === '') {
-        return;
-      }
+    () => {
       setEditingIndex(null);
       setValidationError(null);
     },
-    [subtitleSegments],
+    [],
   );
 
   return (
@@ -90,8 +81,8 @@ export function SubtitleEditor({
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground font-mono">
-                  {formatTimestamp(segment.start)} —{' '}
-                  {formatTimestamp(segment.end)}
+                  {formatDuration(segment.start)} —{' '}
+                  {formatDuration(segment.end)}
                 </span>
                 {segment.text.trim() === '' && (
                   <span className="text-xs text-amber-500">пусто</span>
@@ -103,7 +94,7 @@ export function SubtitleEditor({
                   <textarea
                     value={segment.text}
                     onChange={(e) => handleTextChange(index, e.target.value)}
-                    onBlur={() => handleBlur(index)}
+                    onBlur={handleBlur}
                     autoFocus
                     rows={2}
                     maxLength={500}
