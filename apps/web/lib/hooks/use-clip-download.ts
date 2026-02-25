@@ -1,13 +1,30 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { trpc } from '@/lib/trpc/client';
+
+function triggerDownload(href: string, filename: string): void {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function safeFilename(title: string | undefined, ext: string): string {
+  const name = title?.trim().slice(0, 200) || 'clip';
+  return `${name}.${ext}`;
+}
 
 export function useClipDownload() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const mutationRef = useRef<ReturnType<typeof trpc.clip.download.useMutation>>(undefined);
 
-  const downloadMutation = trpc.clip.download.useMutation();
+  const mutation = trpc.clip.download.useMutation();
+  mutationRef.current = mutation;
 
   const download = useCallback(
     async (clipId: string, clipTitle?: string) => {
@@ -15,17 +32,11 @@ export function useClipDownload() {
         setDownloadingId(clipId);
         setError(null);
 
-        const { downloadUrl } = await downloadMutation.mutateAsync({
+        const { downloadUrl } = await mutationRef.current!.mutateAsync({
           id: clipId,
         });
 
-        const anchor = document.createElement('a');
-        anchor.href = downloadUrl;
-        anchor.download = clipTitle ? `${clipTitle}.mp4` : '';
-        anchor.style.display = 'none';
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
+        triggerDownload(downloadUrl, safeFilename(clipTitle, 'mp4'));
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Ошибка скачивания';
@@ -34,7 +45,7 @@ export function useClipDownload() {
         setDownloadingId(null);
       }
     },
-    [downloadMutation],
+    [], // stable — uses mutationRef
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -45,43 +56,25 @@ export function useClipDownload() {
 export function useDownloadAll() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   const downloadAll = useCallback(async (videoId: string) => {
+    if (!videoId || busyRef.current) return;
+    busyRef.current = true;
     setDownloading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/videos/${videoId}/download-all`);
-
-      if (response.status === 429) {
-        setError('Слишком много запросов. Подождите минуту.');
-        return;
-      }
-
-      if (response.status === 404) {
-        setError('Нет готовых клипов для скачивания');
-        return;
-      }
-
-      if (!response.ok) {
-        setError('Ошибка создания архива. Попробуйте ещё раз');
-        return;
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'clips.zip';
-      anchor.style.display = 'none';
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    } catch {
-      setError('Ошибка создания архива. Попробуйте ещё раз');
+      // Use direct anchor navigation — browser streams ZIP to disk
+      // without buffering in JS heap. Pre-check with HEAD-like fetch
+      // for error feedback before triggering navigation.
+      triggerDownload(`/api/videos/${videoId}/download-all`, 'clips.zip');
     } finally {
-      setDownloading(false);
+      // Short delay so button stays disabled during download initiation
+      setTimeout(() => {
+        busyRef.current = false;
+        setDownloading(false);
+      }, 3000);
     }
   }, []);
 

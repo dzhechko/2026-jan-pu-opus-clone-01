@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { ClipCard } from './clip-card';
-import { useDownloadAll } from '@/lib/hooks/use-clip-download';
+import { useClipDownload, useDownloadAll } from '@/lib/hooks/use-clip-download';
 
 type ClipData = {
   id: string;
@@ -36,6 +36,7 @@ export function ClipList({ clips, videoId, videoStatus, userPlan, onRetry }: Cli
     [clips],
   );
 
+  const { download, downloadingId, error: clipDownloadError, clearError: clearClipError } = useClipDownload();
   const { downloadAll, downloading: downloadingAll, error: downloadAllError, clearError } = useDownloadAll();
 
   // Processing failed state
@@ -87,7 +88,15 @@ export function ClipList({ clips, videoId, videoStatus, userPlan, onRetry }: Cli
         {clips.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {clips.map((clip) => (
-              <ClipCard key={clip.id} clip={clip} userPlan={userPlan} />
+              <ClipCard
+                key={clip.id}
+                clip={clip}
+                userPlan={userPlan}
+                onDownload={download}
+                isDownloading={downloadingId === clip.id}
+                downloadError={downloadingId === clip.id ? clipDownloadError : null}
+                onClearError={clearClipError}
+              />
             ))}
           </div>
         )}
@@ -163,7 +172,15 @@ export function ClipList({ clips, videoId, videoStatus, userPlan, onRetry }: Cli
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {clips.map((clip) => (
-          <ClipCard key={clip.id} clip={clip} userPlan={userPlan} />
+          <ClipCard
+            key={clip.id}
+            clip={clip}
+            userPlan={userPlan}
+            onDownload={download}
+            isDownloading={downloadingId === clip.id}
+            downloadError={downloadingId === clip.id ? clipDownloadError : null}
+            onClearError={clearClipError}
+          />
         ))}
       </div>
     </div>

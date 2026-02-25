@@ -1,10 +1,9 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import type { ViralityScore } from '@clipmaker/types';
 import { ScoreBadge } from './virality-breakdown';
-import { useClipDownload } from '@/lib/hooks/use-clip-download';
 
 type ClipCardProps = {
   clip: {
@@ -17,6 +16,10 @@ type ClipCardProps = {
     publications: Array<{ id: string }>;
   };
   userPlan?: string;
+  onDownload?: (clipId: string, clipTitle: string) => void;
+  isDownloading?: boolean;
+  downloadError?: string | null;
+  onClearError?: () => void;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -27,8 +30,14 @@ const STATUS_LABELS: Record<string, string> = {
   failed: 'Ошибка',
 };
 
-export const ClipCard = memo(function ClipCard({ clip, userPlan }: ClipCardProps) {
-  const { download, downloadingId, error, clearError } = useClipDownload();
+export const ClipCard = memo(function ClipCard({
+  clip,
+  userPlan,
+  onDownload,
+  isDownloading = false,
+  downloadError,
+  onClearError,
+}: ClipCardProps) {
 
   const viralityScore = useMemo((): ViralityScore => {
     const score = clip.viralityScore as Partial<ViralityScore> | null;
@@ -43,7 +52,14 @@ export const ClipCard = memo(function ClipCard({ clip, userPlan }: ClipCardProps
   }, [clip.viralityScore]);
 
   const cta = clip.cta as { text?: string; position?: string; duration?: number } | null;
-  const isDownloading = downloadingId === clip.id;
+
+  const handleDownloadClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onDownload?.(clip.id, clip.title);
+    },
+    [onDownload, clip.id, clip.title],
+  );
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden hover:shadow-sm transition">
@@ -89,12 +105,9 @@ export const ClipCard = memo(function ClipCard({ clip, userPlan }: ClipCardProps
           )}
         </div>
 
-        {clip.status === 'ready' ? (
+        {clip.status === 'ready' && onDownload ? (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              download(clip.id, clip.title);
-            }}
+            onClick={handleDownloadClick}
             disabled={isDownloading}
             aria-label={`Скачать клип: ${clip.title}`}
             title={userPlan === 'free' ? 'Скачать с водяным знаком' : 'Скачать MP4'}
@@ -121,10 +134,10 @@ export const ClipCard = memo(function ClipCard({ clip, userPlan }: ClipCardProps
           </button>
         ) : null}
 
-        {error && (
+        {downloadError && (
           <div className="mt-2 flex items-center gap-1 text-xs text-red-500" role="alert">
-            <span className="truncate">{error}</span>
-            <button onClick={clearError} className="shrink-0 hover:text-red-700">
+            <span className="truncate">{downloadError}</span>
+            <button onClick={onClearError} className="shrink-0 hover:text-red-700">
               &times;
             </button>
           </div>

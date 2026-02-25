@@ -10,9 +10,32 @@ const UUID_REGEX =
 function sanitizeFilename(name: string): string {
   return (
     name
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+      .replace(/[<>:"/\\|?*;\x00-\x1F]/g, '')
       .replace(/\s+/g, '_')
       .slice(0, 100) || 'clip'
+  );
+}
+
+function rfc5987Encode(value: string): string {
+  return (
+    "UTF-8''" +
+    [...value]
+      .map((ch) => {
+        const code = ch.codePointAt(0)!;
+        // RFC 5987 attr-char: ALPHA / DIGIT / safe subset
+        if (
+          (code >= 0x30 && code <= 0x39) || // 0-9
+          (code >= 0x41 && code <= 0x5a) || // A-Z
+          (code >= 0x61 && code <= 0x7a) || // a-z
+          '-._~!$&+'.includes(ch)
+        ) {
+          return ch;
+        }
+        return [...new TextEncoder().encode(ch)]
+          .map((b) => `%${b.toString(16).toUpperCase().padStart(2, '0')}`)
+          .join('');
+      })
+      .join('')
   );
 }
 
@@ -76,6 +99,7 @@ export async function GET(
   // Create ZIP stream — level 1 (fast, video is already compressed)
   const archive = archiver('zip', { zlib: { level: 1 } });
   const sanitizedTitle = sanitizeFilename(video.title);
+  const zipFilename = `${sanitizedTitle}-clips.zip`;
 
   // Stream ZIP to response via TransformStream
   const { readable, writable } = new TransformStream();
@@ -84,8 +108,14 @@ export async function GET(
   // Pipe archive output to writer (fire and forget — runs in background)
   void (async () => {
     try {
-      archive.on('data', (chunk: Buffer) => writer.write(chunk));
+      archive.on('data', async (chunk: Buffer) => {
+        await writer.ready;
+        await writer.write(chunk);
+      });
       archive.on('end', () => writer.close());
+      archive.on('warning', (err) => {
+        console.warn('Archive warning:', err);
+      });
       archive.on('error', (err) => {
         console.error('Archive error:', err);
         writer.abort(err);
@@ -112,7 +142,7 @@ export async function GET(
   return new NextResponse(readable, {
     headers: {
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${sanitizedTitle}-clips.zip"`,
+      'Content-Disposition': `attachment; filename="${zipFilename}"; filename*=${rfc5987Encode(zipFilename)}`,
       'Cache-Control': 'no-store',
     },
   });
