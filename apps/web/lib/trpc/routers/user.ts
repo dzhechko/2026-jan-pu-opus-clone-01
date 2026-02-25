@@ -1,34 +1,59 @@
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { registerSchema } from '@/lib/auth/schemas';
+import { hashPassword } from '@/lib/auth/password';
+import { signVerificationToken } from '@/lib/auth/jwt';
+import { checkRateLimit } from '@/lib/auth/rate-limit';
 
 export const userRouter = router({
   register: publicProcedure
-    .input(
-      z.object({
-        name: z.string().min(1).max(100),
-        email: z.string().email(),
-        password: z.string().min(8).max(128),
-      }),
-    )
+    .input(registerSchema)
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
+      // Rate limit: 3 registrations per hour per IP
+      // In tRPC context we don't have direct IP access, use a fallback key
+      const rateLimitKey = 'trpc-register';
+      await checkRateLimit('auth:register', rateLimitKey, 3, 3600);
+
+      const normalizedEmail = input.email.toLowerCase().trim();
+
+      const existing = await ctx.prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
       if (existing) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'Email уже зарегистрирован' });
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Email уже зарегистрирован',
+        });
       }
 
-      // TODO: bcrypt.hash(input.password, 12)
-      const passwordHash = input.password; // placeholder
+      const passwordHash = await hashPassword(input.password);
 
       const user = await ctx.prisma.user.create({
         data: {
           name: input.name,
-          email: input.email,
+          email: normalizedEmail,
           passwordHash,
+          authProvider: 'email',
+          planId: 'free',
+          minutesLimit: 30,
+          llmProviderPreference: 'ru',
         },
       });
 
-      return { id: user.id, email: user.email };
+      // Sign email verification JWT (24h expiry)
+      const verificationToken = signVerificationToken(user.id, user.email);
+      const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
+      const verificationLink = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`;
+
+      // TODO: Replace with actual email sending (e.g., Resend, SendGrid)
+      console.log(`[VERIFY EMAIL] ${user.email}: ${verificationLink}`);
+
+      return {
+        message:
+          'Регистрация успешна. Проверьте почту для подтверждения email.',
+      };
     }),
 
   me: protectedProcedure.query(async ({ ctx }) => {
@@ -46,7 +71,13 @@ export const userRouter = router({
       },
     });
 
-    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+    if (!user) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Пользователь не найден',
+      });
+    }
+
     return user;
   }),
 
@@ -78,7 +109,12 @@ export const userRouter = router({
       include: { subscription: true },
     });
 
-    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+    if (!user) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Пользователь не найден',
+      });
+    }
 
     const costs = await ctx.prisma.usageRecord.aggregate({
       where: { userId: ctx.session.user.id },
