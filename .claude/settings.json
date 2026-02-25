@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '\nDIR=\"myinsights\"\nINDEX=\"myinsights/1nsights.md\"\nCLAUDE=\"CLAUDE.md\"\n\n# Check if myinsights/ has any uncommitted or untracked changes\nif [ -d \"$DIR\" ] && (git diff --name-only -- \"$DIR\" 2>/dev/null | grep -q . || git diff --name-only --cached -- \"$DIR\" 2>/dev/null | grep -q . || git ls-files --others --exclude-standard -- \"$DIR\" 2>/dev/null | grep -q .); then\n  \n  # Auto-add insights reference to CLAUDE.md on first time\n  if ! grep -q \"myinsights\" \"$CLAUDE\" 2>/dev/null; then\n    printf \"\\n## 🔍 Development Insights (живая база знаний)\\nIndex: [myinsights/1nsights.md](myinsights/1nsights.md) — check here FIRST before debugging.\\n⚠️ On error → grep the error string in the index → read only the matched detail file.\\nCapture new findings: \\`/myinsights [title]\\`\\n\" >> \"$CLAUDE\"\n    git add \"$CLAUDE\"\n    echo \"📌 myinsights/ reference added to CLAUDE.md\"\n  fi\n  \n  # Auto-commit all changes in myinsights/\n  git add \"$DIR\"\n  git commit -m \"docs(insights): update knowledge base\"\n  echo \"✅ myinsights/ auto-committed\"\nfi\n'"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(git *)",
+      "Bash(docker *)",
+      "Bash(docker compose *)",
+      "Bash(ffmpeg *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(curl *)",
+      "Bash(echo *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(ssh *)",
+      "Bash(scp *)"
+    ],
+    "deny": []
+  }
+}

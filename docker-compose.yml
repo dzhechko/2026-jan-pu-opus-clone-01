@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://clipmaker:clipmaker@postgres:5432/clipmaker
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+
+  worker-stt:
+    build: .
+    command: ["node", "dist/apps/worker/workers/stt.js"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://clipmaker:clipmaker@postgres:5432/clipmaker
+    depends_on:
+      - redis
+      - postgres
+
+  worker-llm:
+    build: .
+    command: ["node", "dist/apps/worker/workers/llm.js"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://clipmaker:clipmaker@postgres:5432/clipmaker
+    depends_on:
+      - redis
+      - postgres
+
+  worker-video:
+    build: .
+    command: ["node", "dist/apps/worker/workers/video.js"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://clipmaker:clipmaker@postgres:5432/clipmaker
+    depends_on:
+      - redis
+      - postgres
+
+  worker-publish:
+    build: .
+    command: ["node", "dist/apps/worker/workers/publish.js"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://clipmaker:clipmaker@postgres:5432/clipmaker
+    depends_on:
+      - redis
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=clipmaker
+      - POSTGRES_USER=clipmaker
+      - POSTGRES_PASSWORD=clipmaker
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  redisdata:

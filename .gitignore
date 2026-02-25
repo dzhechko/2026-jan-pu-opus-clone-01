@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.log
+.env
+.env.local
+.env.production
+.DS_Store
+coverage/
+.nyc_output/
+*.tsbuildinfo
+pgdata/
+redisdata/
+uploads/
+rendered/
