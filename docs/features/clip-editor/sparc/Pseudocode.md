@@ -10,14 +10,13 @@ This document provides implementation-ready pseudocode for all components, state
 
 **Route:** `/dashboard/videos/[videoId]/clips/[clipId]/edit`
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/page.tsx`
+**File:** `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/page.tsx`
 
 ```typescript
 // Server Component — fetches data, delegates to client component
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { prisma } from '@clipmaker/db'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { ClipEditor } from './clip-editor'
 
 type PageProps = {
@@ -26,17 +25,18 @@ type PageProps = {
 
 export default async function ClipEditorPage({ params }: PageProps) {
   const { videoId, clipId } = await params
-  const session = await getServerSession(authOptions)
+  const headerStore = await headers()
+  const userId = headerStore.get('x-user-id')
 
-  if (!session?.user?.id) {
-    notFound()
+  if (!userId) {
+    redirect('/login')
   }
 
   const clip = await prisma.clip.findFirst({
     where: {
       id: clipId,
       videoId: videoId,
-      userId: session.user.id,
+      userId,
     },
     include: {
       video: {
@@ -108,7 +108,7 @@ export default async function ClipEditorPage({ params }: PageProps) {
 
 ## 2. Loading, Error, and Not-Found Pages
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/loading.tsx`
+**File:** `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/loading.tsx`
 
 ```typescript
 export default function Loading() {
@@ -135,7 +135,7 @@ export default function Loading() {
 }
 ```
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/not-found.tsx`
+**File:** `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/not-found.tsx`
 
 ```typescript
 import Link from 'next/link'
@@ -158,7 +158,7 @@ export default function NotFound() {
 }
 ```
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/error.tsx`
+**File:** `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/error.tsx`
 
 ```typescript
 'use client'
@@ -191,7 +191,7 @@ export default function Error({
 
 ## 3. useClipEditorStore (Zustand Store)
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/use-clip-editor-store.ts`
+**File:** `apps/web/lib/stores/clip-editor-store.ts`
 
 ```typescript
 'use client'
@@ -453,7 +453,7 @@ export type ClipEditorStore = ReturnType<typeof createClipEditorStore>
 
 ## 4. ClipEditor (Client Component — Main Orchestrator)
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/clip-editor.tsx`
+**File:** `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/clip-editor.tsx`
 
 ```typescript
 'use client'
@@ -462,12 +462,12 @@ import { useRef, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
-import { createClipEditorStore } from './use-clip-editor-store'
-import { VideoPreview } from './components/video-preview'
-import { Timeline } from './components/timeline'
-import { SubtitleEditor } from './components/subtitle-editor'
-import { MetadataPanel } from './components/metadata-panel'
-import { ActionBar } from './components/action-bar'
+import { createClipEditorStore } from '@/lib/stores/clip-editor-store'
+import { VideoPreview } from '@/components/clip-editor/video-preview'
+import { Timeline } from '@/components/clip-editor/timeline'
+import { SubtitleEditor } from '@/components/clip-editor/subtitle-editor'
+import { MetadataPanel } from '@/components/clip-editor/metadata-panel'
+import { ActionBar } from '@/components/clip-editor/action-bar'
 
 type ClipEditorProps = {
   clip: ClipData       // Serialized clip from server
@@ -710,7 +710,7 @@ export function ClipEditor({
 
 ## 5. VideoPreview Component
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/components/video-preview.tsx`
+**File:** `apps/web/components/clip-editor/video-preview.tsx`
 
 ```typescript
 'use client'
@@ -884,7 +884,7 @@ function formatTimestamp(seconds: number): string {
 
 ## 6. Timeline Component
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/components/timeline.tsx`
+**File:** `apps/web/components/clip-editor/timeline.tsx`
 
 ```typescript
 'use client'
@@ -1099,7 +1099,7 @@ function formatTimestamp(seconds: number): string {
 
 ## 7. SubtitleEditor Component
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/components/subtitle-editor.tsx`
+**File:** `apps/web/components/clip-editor/subtitle-editor.tsx`
 
 ```typescript
 'use client'
@@ -1253,7 +1253,7 @@ function formatTimestamp(seconds: number): string {
 
 ## 8. MetadataPanel Component
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/components/metadata-panel.tsx`
+**File:** `apps/web/components/clip-editor/metadata-panel.tsx`
 
 ```typescript
 'use client'
@@ -1277,13 +1277,17 @@ type ViralityScore = {
   tips: string[]
 }
 
+const DESCRIPTION_MAX_LENGTH = 500
+
 type MetadataPanelProps = {
   title: string
+  description: string
   format: ClipFormat
   cta: Cta
   viralityScore: ViralityScore
   disabled: boolean
   onTitleChange: (title: string) => void
+  onDescriptionChange: (description: string) => void
   onFormatChange: (format: ClipFormat) => void
   onCtaChange: (cta: Cta) => void
 }
@@ -1298,11 +1302,13 @@ const CTA_MAX_LENGTH = 100
 
 export function MetadataPanel({
   title,
+  description,
   format,
   cta,
   viralityScore,
   disabled,
   onTitleChange,
+  onDescriptionChange,
   onFormatChange,
   onCtaChange,
 }: MetadataPanelProps) {
@@ -1364,6 +1370,38 @@ export function MetadataPanel({
           "
           placeholder="Введите заголовок клипа"
         />
+      </div>
+
+      {/* ── Description ────────────────────────────────────── */}
+      <div className="flex flex-col gap-1">
+        <label htmlFor="clip-description" className="text-sm font-semibold text-foreground">
+          Описание
+          <span className="ml-1 text-xs text-muted-foreground font-normal">(необязательно)</span>
+        </label>
+        <div className="relative">
+          <textarea
+            id="clip-description"
+            value={description}
+            onChange={(e) => {
+              if (e.target.value.length <= DESCRIPTION_MAX_LENGTH) {
+                onDescriptionChange(e.target.value)
+              }
+            }}
+            disabled={disabled}
+            maxLength={DESCRIPTION_MAX_LENGTH}
+            rows={3}
+            className="
+              w-full px-3 py-2 text-sm rounded border border-border
+              bg-background text-foreground resize-y
+              focus:outline-none focus:ring-1 focus:ring-primary
+              disabled:opacity-50 disabled:cursor-not-allowed
+            "
+            placeholder="Краткое описание клипа для публикации"
+          />
+          <span className="absolute right-2 bottom-2 text-xs text-muted-foreground">
+            {description.length}/{DESCRIPTION_MAX_LENGTH}
+          </span>
+        </div>
       </div>
 
       {/* ── Format Selector ───────────────────────────────── */}
@@ -1542,7 +1580,7 @@ function ScoreRow({ label, value }: { label: string; value: number }) {
 
 ## 9. ActionBar Component
 
-**File:** `apps/web/app/dashboard/videos/[videoId]/clips/[clipId]/edit/components/action-bar.tsx`
+**File:** `apps/web/components/clip-editor/action-bar.tsx`
 
 ```typescript
 'use client'
@@ -1706,7 +1744,7 @@ const MAX_CLIP_DURATION = 180
 export const updateFull = protectedProcedure
   .input(updateFullInputSchema)
   .mutation(async ({ input, ctx }) => {
-    const userId = ctx.session.user.id
+    const userId = ctx.userId
 
     // 1. Fetch existing clip with ownership check
     const existingClip = await prisma.clip.findFirst({
@@ -1872,12 +1910,12 @@ export const updateFull = protectedProcedure
 ├── not-found.tsx                (404 page)
 ├── error.tsx                    (Error boundary)
 ├── clip-editor.tsx              (Client Component — orchestrator)
-├── use-clip-editor-store.ts     (Zustand store factory)
-└── components/
+├── (store: lib/stores/clip-editor-store.ts — Zustand store factory)
+└── (components: components/clip-editor/)
     ├── video-preview.tsx        (Video + subtitle/CTA overlays)
     ├── timeline.tsx             (Draggable clip boundary handles)
     ├── subtitle-editor.tsx      (Inline subtitle text editing)
-    ├── metadata-panel.tsx       (Title + format + CTA + virality)
+    ├── metadata-panel.tsx       (Title + description + format + CTA + virality)
     └── action-bar.tsx           (Save/Preview/Reset buttons)
 ```
 
@@ -1911,7 +1949,7 @@ Server Component (page.tsx)
               VideoPreview  ← currentTime, subtitles, cta, format
               Timeline      ← startTime, endTime, videoDuration
               SubtitleEditor ← subtitleSegments, activeIndex
-              MetadataPanel ← title, format, cta, viralityScore
+              MetadataPanel ← title, description, format, cta, viralityScore
               ActionBar     ← isDirty, isSaving, isRendering
 ```
 

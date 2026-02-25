@@ -43,7 +43,7 @@
 ### Timeline Trim
 - Horizontal strip showing video duration with two draggable handles (start/end)
 - Waveform or thumbnail filmstrip optional but adds clarity
-- Minimum clip duration enforcement (3 seconds) prevents user errors
+- Minimum clip duration enforcement (5 seconds) prevents user errors
 - Snap-to-word boundaries using subtitle timing data for cleaner cuts
 
 ### Inline Subtitle Editing
@@ -96,7 +96,7 @@
 - Single `clip.updateFull` mutation accepting partial update of all editable fields
 - Zod schema validates all fields server-side before persisting
 - After DB update, enqueues re-render job to BullMQ if trim or format changed
-- Subtitle text changes without trim/format change skip re-render (metadata-only update)
+- Subtitle text changes DO require re-render because FFmpeg burns subtitles into the video
 
 ## 4. Russian Market Specifics
 
@@ -118,7 +118,7 @@
 
 ### Localization
 - All UI labels in Russian: "Обрезка", "Субтитры", "Формат", "CTA", "Сохранить"
-- Error messages in Russian: "Минимальная длина клипа — 3 секунды"
+- Error messages in Russian: "Минимальная длина клипа — 5 секунд"
 - Tooltip help in Russian explaining each control
 - Date/time formatting: DD.MM.YYYY HH:MM (Moscow timezone default)
 

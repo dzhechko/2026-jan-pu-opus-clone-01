@@ -85,7 +85,7 @@ Implementation:
 
 Flow:
 1. User clicks "Save".
-2. Client sends `clip.update` mutation via tRPC with all changed fields.
+2. Client sends `clip.updateFull` mutation via tRPC with all changed fields.
 3. UI immediately transitions to "Rendering..." state (optimistic).
 4. Editing controls become disabled (read-only).
 5. tRPC mutation triggers BullMQ re-render job on the server.
@@ -97,14 +97,14 @@ This avoids the user staring at a spinner — they see the state change immediat
 
 ### Decision 5: State Management
 
-**Decision: Local React state with tRPC query for initial data.**
+**Decision: Zustand store with tRPC query for initial data.**
 
-Rationale: The editor state (trim points, subtitle edits, CTA, format, title) is local to the editing session. There is no need for a global store. On page load, fetch clip data via `clip.get`. All edits happen in local `useState`/`useReducer`. On save, serialize the state and send via `clip.update`.
+Rationale: The editor has complex cross-component state — 6 components (VideoPreview, Timeline, SubtitleEditor, CTAEditor, FormatSelector, TitleEditor) all share trim, subtitle, format, and CTA state. Zustand provides granular selectors so each component subscribes only to its slice, avoiding unnecessary re-renders and prop drilling. On page load, fetch clip data via `clip.get` and hydrate the store. On save, serialize the store state and send via `clip.updateFull`.
 
 Structure:
 ```
-useClipEditor(clipId) → {
-  clip: ClipData              // from tRPC query
+useClipEditorStore = create((set, get) => ({
+  clip: ClipData              // from tRPC query (hydrated on mount)
   draft: ClipDraftState       // local edits
   isDirty: boolean            // draft !== clip
   actions: {
@@ -117,21 +117,21 @@ useClipEditor(clipId) → {
     save() → mutation
     reset() → revert to clip
   }
-}
+}))
 ```
 
-No Zustand needed — the editor is a single-page form with no cross-component shared state beyond what `useClipEditor` provides via context.
+Zustand is the right choice here — the editor has cross-component shared state across 6 components, and granular selectors prevent prop drilling and unnecessary re-renders.
 
 ## Component Architecture
 
 ```
 ClipEditorPage (server component — data fetch + layout)
-└── ClipEditorClient (client component — all interactive logic)
-    ├── VideoPreviewPlayer
+└── ClipEditor (client component — all interactive logic)
+    ├── VideoPreview
     │   ├── <video> element
     │   ├── SubtitleOverlay (CSS-positioned, time-synced)
     │   └── CTAOverlay (CSS-positioned)
-    ├── TimelineScrubber
+    ├── Timeline
     │   ├── TimelineTrack (full duration bar)
     │   ├── TrimHandle (left) — draggable
     │   ├── TrimHandle (right) — draggable
@@ -151,7 +151,7 @@ ClipEditorPage (server component — data fetch + layout)
     └── ActionBar
         ├── BackButton → /dashboard/videos/[videoId]
         ├── ResetButton (revert to saved state)
-        └── SaveButton → clip.update mutation
+        └── SaveButton → clip.updateFull mutation
 ```
 
 ## Risk Assessment
@@ -162,7 +162,7 @@ ClipEditorPage (server component — data fetch + layout)
 | Large source video slow to load | Medium | Medium | Use S3 presigned URL with range requests. Browser handles progressive loading. Show loading skeleton while video buffers. |
 | CSS subtitle position differs from FFmpeg ASS | Low | Low | Acceptable trade-off for MVP. Document that preview is approximate. Users care about text content, not pixel positions. |
 | User navigates away with unsaved changes | Medium | Medium | `beforeunload` event handler + React Router navigation guard. Show "Unsaved changes" confirmation dialog. |
-| Concurrent edits (same clip in two tabs) | Low | Low | Last-write-wins. No locking mechanism for MVP. The `clip.update` mutation overwrites all fields. |
+| Concurrent edits (same clip in two tabs) | Low | Low | Last-write-wins. No locking mechanism for MVP. The `clip.updateFull` mutation overwrites all fields. |
 | Re-render job fails | Low | Medium | Existing retry logic in BullMQ worker (3 retries, exponential backoff). Editor shows "failed" state with retry button. |
 
 ## Performance Targets
@@ -181,7 +181,7 @@ ClipEditorPage (server component — data fetch + layout)
 2. **Phase 2 — Timeline scrubber.** Implement draggable trim handles, playhead, duration display. Wire to video element `currentTime`.
 3. **Phase 3 — Subtitle overlay.** Render CSS subtitle overlay synced to playback. Build subtitle segment editor panel.
 4. **Phase 4 — Format selector and CTA editor.** Aspect ratio switching, CTA overlay preview.
-5. **Phase 5 — Save and render flow.** Wire Save button to `clip.update`, implement optimistic UI, render status polling.
+5. **Phase 5 — Save and render flow.** Wire Save button to `clip.updateFull`, implement optimistic UI, render status polling.
 6. **Phase 6 — Preview mode and polish.** Edit/Preview toggle, unsaved changes guard, loading states, error handling.
 
 Each phase is independently committable and testable. Phases 2-4 can be parallelized across agents.

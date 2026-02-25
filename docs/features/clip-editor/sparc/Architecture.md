@@ -23,7 +23,7 @@ graph TD
     E -- "inline edit" --> E2["SubtitleSegmentRow"]
 
     F -- "title input" --> F1["TitleField"]
-    F -- "format selector" --> F2["FormatSelector (9:16, 16:9, 1:1)"]
+    F -- "format selector" --> F2["FormatSelector (portrait, landscape, square)"]
     F -- "CTA editor" --> F3["CTAEditor"]
     F -- "virality display" --> F4["ViralityBadge"]
 
@@ -135,13 +135,13 @@ type ClipEditorState = {
   title: string;
   startTime: number;        // seconds
   endTime: number;          // seconds
-  format: ClipFormat;        // '9:16' | '16:9' | '1:1'
+  format: ClipFormat;        // 'portrait' | 'landscape' | 'square'
   subtitles: SubtitleSegment[];
   subtitleStyle: SubtitleStyle;
   cta: CTA | null;
 
   // UI state
-  status: ClipStatus;        // 'draft' | 'rendering' | 'ready' | 'failed'
+  status: ClipStatus;        // 'pending' | 'rendering' | 'ready' | 'published' | 'failed'
   isDirty: boolean;
   isSaving: boolean;
   currentTime: number;       // video playhead position
@@ -191,7 +191,7 @@ const clipUpdateFullInput = z.object({
   title: z.string().min(1).max(200).optional(),
   startTime: z.number().min(0).optional(),
   endTime: z.number().min(1).optional(),
-  format: z.enum(['9:16', '16:9', '1:1']).optional(),
+  format: z.enum(['portrait', 'landscape', 'square']).optional(),
   subtitles: z.array(subtitleSegmentSchema).optional(),
   subtitleStyle: subtitleStyleSchema.optional(),
   cta: ctaSchema.nullable().optional(),

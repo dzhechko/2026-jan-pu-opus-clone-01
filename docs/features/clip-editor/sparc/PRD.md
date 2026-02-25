@@ -59,18 +59,18 @@ A visual, in-browser clip editor with real-time preview that lets users trim, ed
 
 - Fields: CTA text, position (overlay during video / endcard after video), duration (seconds).
 - Live preview of the CTA on the video player (overlay) or as a separate endcard frame.
-- Character limit: 80 characters for CTA text.
+- Character limit: 100 characters for CTA text.
 - Default CTA pre-filled from AI pipeline output.
 
 ### 6. Title & Description Editor
 
-- Editable title field (max 100 characters) with character counter.
+- Editable title field (max 200 characters) with character counter.
 - Editable description field (max 500 characters) with character counter.
 - Both pre-filled from AI-generated content.
 
 ### 7. Save & Re-render
 
-- "Save" button triggers `clip.update` tRPC mutation with all changed fields.
+- "Save" button triggers `clip.updateFull` tRPC mutation with all changed fields.
 - Optimistic UI: immediately show "Rendering..." status on the clip.
 - Disable editing controls while render is in progress.
 - On render completion, update the preview to show the final rendered clip.
@@ -120,7 +120,7 @@ A visual, in-browser clip editor with real-time preview that lets users trim, ed
 - Source video served via S3 presigned URL (same as `clip.download` pattern).
 - Browser must support HTML5 `<video>` with MP4/H.264 (universal in modern browsers).
 - Subtitle overlay is CSS-based for preview; FFmpeg ASS burn-in for final render.
-- All mutations go through existing tRPC `clip.update` endpoint; no new API routes needed for MVP.
+- All mutations go through the tRPC `clip.updateFull` endpoint (extended mutation supporting trim, subtitles, CTA, format, and title/description fields).
 - Re-render triggered by BullMQ job via existing FFmpeg pipeline (13-step).
 - Page requires authentication (NextAuth.js session); clip must belong to the authenticated user.
 

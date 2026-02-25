@@ -7,9 +7,9 @@
 | 1 | Clip is rendering when user opens editor | Show read-only mode: all fields disabled, "Рендеринг..." indicator with spinner. Poll status every 3s. When rendering completes, switch to editable mode automatically. | ClipEditor, ActionBar | High |
 | 2 | User navigates away with unsaved changes | Trigger `beforeunload` browser warning: "У вас есть несохранённые изменения. Уйти?" Also intercept Next.js route changes via `useRouter` events. | ClipEditor (store isDirty check) | High |
 | 3 | Video source file deleted from S3 | VideoPreview shows error placeholder: "Видео недоступно". Disable preview and timeline. Allow metadata-only edits (title, CTA text). Save without triggering re-render if only metadata changed. | VideoPreview, Timeline, ActionBar | Medium |
-| 4 | startTime >= endTime after drag | Prevent in real-time: clamp handles to maintain minimum 1-second gap. If start handle is dragged past `endTime - 1`, stop at `endTime - 1`. Same logic for end handle. Visual snap feedback. | Timeline | High |
+| 4 | startTime >= endTime after drag | Prevent in real-time: clamp handles to maintain minimum 5-second gap. If start handle is dragged past `endTime - 5`, stop at `endTime - 5`. Same logic for end handle. Visual snap feedback. | Timeline | High |
 | 5 | Clip duration > 180s after trim | Prevent: if user drags end handle to create >180s clip, clamp to 180s. Show warning toast: "Максимальная длительность клипа — 3 минуты". | Timeline | High |
-| 6 | Clip duration < 1s after trim | Prevent: minimum duration enforced at 1 second. Handles cannot be dragged closer than 1s apart. | Timeline | Medium |
+| 6 | Clip duration < 5s after trim | Prevent: minimum duration enforced at 5 seconds. Handles cannot be dragged closer than 5s apart. | Timeline | Medium |
 | 7 | Subtitle text empty (user clears text) | Allow: empty subtitle segments are valid (removes subtitle from that time range during render). Show visual indicator (dimmed row) in SubtitleEditor. | SubtitleEditor | Low |
 | 8 | Very long subtitle text (>200 chars) | Show character counter. Warn at 200 chars with yellow indicator. Hard limit at 500 chars (Zod validation). Truncate display in overlay preview with ellipsis. | SubtitleEditor, VideoPreview | Medium |
 | 9 | Concurrent edits (two browser tabs) | Last-write-wins strategy. On save, compare `updatedAt` from server response with stored value. If mismatch, show conflict dialog: "Клип был изменён в другой вкладке. Перезагрузить?" with options to reload or force save. | ClipEditor, ActionBar | Medium |
@@ -32,7 +32,7 @@
 | Test Area | What to Test | File |
 |-----------|-------------|------|
 | Zustand Store | `initialize()` sets all fields from clip data | `clip-editor-store.test.ts` |
-| Zustand Store | `setTrimRange()` enforces min 1s, max 180s constraints | `clip-editor-store.test.ts` |
+| Zustand Store | `setTrimRange()` enforces min 5s, max 180s constraints | `clip-editor-store.test.ts` |
 | Zustand Store | `isDirty` correctly computed after changes | `clip-editor-store.test.ts` |
 | Zustand Store | `reset()` restores original values | `clip-editor-store.test.ts` |
 | Zustand Store | `getChanges()` returns only modified fields | `clip-editor-store.test.ts` |
@@ -217,4 +217,4 @@ All UI text is in Russian (target audience). Labels use clear, descriptive Russi
 - No database migration needed (Clip model already has all required fields).
 - No new environment variables.
 - No breaking changes to existing API — `clip.updateFull` is a new endpoint, existing `clip.update` remains for backward compatibility.
-- Feature flag: `FEATURE_CLIP_EDITOR=true` in environment to enable route (optional, can launch directly).
+- Feature flag: `CLIP_EDITOR_ENABLED=true` in environment to enable route (optional, can launch directly).

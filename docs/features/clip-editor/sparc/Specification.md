@@ -136,7 +136,7 @@ Feature: Trim clip via timeline
 - Text changes reflect immediately in the video preview overlay
 - Clicking a segment also seeks the video to that segment's start time
 - Active segment is visually highlighted in both the list and the preview
-- Empty subtitle text is not allowed (validation error shown)
+- Empty subtitle text IS allowed — it removes the subtitle segment from that time range during render. Show a visual indicator (dimmed row) but don't block.
 - Changes mark the editor as dirty
 - Save persists subtitle changes via a new `clip.updateFull` tRPC mutation
 
@@ -157,11 +157,13 @@ Feature: Edit subtitle text
     When I change the text from "Привет мир" to "Привет, мир!"
     Then the video preview overlay shows "Привет, мир!" at the segment position
 
-  Scenario: Prevent saving empty subtitle text
+  Scenario: Empty subtitle text removes segment from render
     Given I am editing subtitle segment #3
     When I clear the text field completely
-    Then I see a validation error "Текст субтитра не может быть пустым"
-    And the "Сохранить" button is disabled
+    Then the segment row appears dimmed in the subtitle list
+    And the video preview no longer shows a subtitle for that time range
+    And the "Сохранить" button remains enabled
+    And saving will exclude this segment from the rendered video
 
   Scenario: Save edited subtitles
     Given I have edited subtitle segment #3 text
@@ -358,7 +360,7 @@ Feature: Preview and save
 | Video preview seek latency | < 200ms |
 | Subtitle overlay render | < 16ms (60fps) |
 | Timeline drag responsiveness | < 16ms (60fps) |
-| Save mutation response time | < 1s (excluding render) |
+| Save mutation response time | < 500ms (excluding render) |
 | Max subtitle segments per clip | 500 |
 | Max CTA text length | 100 characters |
 | Min clip duration | 5 seconds |

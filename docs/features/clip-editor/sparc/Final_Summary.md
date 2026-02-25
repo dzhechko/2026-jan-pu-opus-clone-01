@@ -14,8 +14,8 @@ The implementation is predominantly frontend work. Backend changes are minimal �
 
 | Type | Count | Details |
 |------|-------|---------|
-| Page route | 1 | `/clips/[id]/edit/page.tsx` — server component with auth check and clip data fetch |
-| Client components | 6 | `ClipEditorShell`, `VideoPreview`, `SubtitleOverlay`, `TrimTimeline`, `FormatSelector`, `CtaEditor` |
+| Page route | 1 | `app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/page.tsx` — server component with auth check and clip data fetch |
+| Client components | 6 | `ClipEditor`, `VideoPreview`, `Timeline`, `SubtitleEditor`, `MetadataPanel`, `ActionBar` |
 | Zustand store | 1 | `useClipEditorStore` — manages trim, subtitles, format, CTA, playback state, dirty flag |
 | tRPC mutation | 1 | `clip.updateFull` — validates and persists all editable fields, conditionally enqueues re-render |
 | Support pages | 3 | `loading.tsx`, `error.tsx`, `not-found.tsx` for the edit route |
@@ -54,7 +54,7 @@ No new infrastructure, services, or external dependencies required.
 |------|--------|-------------|------------|
 | Browser video codec incompatibility | Users cannot preview clips | Low | Standardize on H.264/MP4 (universal browser support). FFmpeg worker already outputs this format. |
 | Large video files cause slow editor load | Poor UX on slow connections | Medium | Use S3 presigned URLs with range requests. Video streams progressively — no full download needed. |
-| Subtitle timing drift after trim | Subtitles out of sync | Low | Subtract `trimStart` from all subtitle timestamps on save. Unit test this calculation. |
+| Subtitle timing drift after trim | Subtitles out of sync | Low | Subtract `startTime` from all subtitle timestamps on save. Unit test this calculation. |
 | Re-render queue saturation from frequent edits | Long wait for rendered clips | Medium | Debounce save button (disable for 2s after save). Show queue position to user. Deduplicate re-render jobs for same clipId. |
 | Mobile browser limitations | Touch-based trim handles may be imprecise | Low | Set minimum handle drag distance. Not a launch blocker — 90% of users edit on desktop. |
 

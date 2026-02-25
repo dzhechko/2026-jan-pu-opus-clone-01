@@ -4,7 +4,7 @@
 
 ### Build & Deploy
 - Standard Next.js 15 build process — no new build steps required
-- Clip editor is a new page route: `apps/web/app/clips/[id]/edit/page.tsx`
+- Clip editor is a new page route: `apps/web/app/(dashboard)/dashboard/videos/[videoId]/clips/[clipId]/edit/page.tsx`
 - All components are client-side React 19 with `'use client'` directive
 - No new services to deploy: reuses existing FFmpeg worker (`apps/worker`) and S3 storage
 - No new Docker containers or infrastructure changes
@@ -27,7 +27,7 @@ CLIP_EDITOR_ENABLED=true
 
 ### Implementation
 - Feature flag is optional; the editor can launch without it
-- If flag is `false`, the "Edit" button on clip cards is hidden and the `/clips/[id]/edit` route returns 404
+- If flag is `false`, the "Edit" button on clip cards is hidden and the `/dashboard/videos/[videoId]/clips/[clipId]/edit` route returns 404
 - Flag checked at two levels:
   1. **UI level:** `ClipCard` component conditionally renders the edit button
   2. **Route level:** `page.tsx` reads env var via server component and redirects if disabled
@@ -67,7 +67,7 @@ Every call to the `clip.updateFull` tRPC mutation logs a structured entry:
   "msg": "clip.updateFull",
   "userId": "usr_abc123",
   "clipId": "clip_xyz789",
-  "changedFields": ["subtitles", "trimStart", "trimEnd"],
+  "changedFields": ["subtitles", "startTime", "endTime"],
   "reRenderQueued": true,
   "duration": 45,
   "timestamp": "2026-02-25T12:00:00.000Z"
@@ -93,14 +93,14 @@ Every call to the `clip.updateFull` tRPC mutation logs a structured entry:
 ## 5. Rollback Plan
 
 ### Safety Assessment: LOW RISK
-- **No database schema changes** — the Clip model already has all required fields (`trimStart`, `trimEnd`, `subtitles`, `format`, `ctaText`, `ctaUrl`)
+- **No database schema changes** — the Clip model already has all required fields (`startTime`, `endTime`, `subtitles`, `format`, `ctaText`, `ctaUrl`)
 - **No data migrations** — existing clips are fully compatible
 - **No API breaking changes** — new mutation added, no existing mutations modified
 - **No infrastructure changes** — same Docker Compose configuration
 
 ### Rollback Steps
 1. Revert the deployment to previous container image: `docker compose up -d --force-recreate`
-2. The `/clips/[id]/edit` route disappears — users see 404 if they have bookmarked the URL
+2. The `/dashboard/videos/[videoId]/clips/[clipId]/edit` route disappears — users see 404 if they have bookmarked the URL
 3. Existing clips are unaffected — no data was modified by the editor feature code itself
 4. Any in-flight re-render jobs complete normally (FFmpeg worker is unchanged)
 5. The "Edit" button disappears from clip cards
@@ -118,8 +118,8 @@ All fields used by the clip editor already exist in the Prisma schema:
 
 | Field | Type | Status |
 |-------|------|--------|
-| `trimStart` | Float | Exists |
-| `trimEnd` | Float | Exists |
+| `startTime` | Float | Exists |
+| `endTime` | Float | Exists |
 | `subtitles` | Json | Exists |
 | `format` | String | Exists |
 | `ctaText` | String? | Exists |
