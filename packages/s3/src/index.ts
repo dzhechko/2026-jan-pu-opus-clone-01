@@ -1,5 +1,5 @@
 // Client
-export { getS3Client, getBucket } from './client';
+export { getS3Client, getBucket, resetS3Client } from './client';
 export type { S3Config } from './config';
 
 // Paths

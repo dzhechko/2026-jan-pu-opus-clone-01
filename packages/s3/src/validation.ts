@@ -24,7 +24,11 @@ const MAGIC_BYTES: MagicBytesEntry[] = [
   },
 ];
 
+const MIN_BYTES_NEEDED = 12; // AVI check needs offset 8 + 4 bytes
+
 export function validateMagicBytes(bytes: Uint8Array): { valid: boolean; format: string | null } {
+  if (bytes.length < MIN_BYTES_NEEDED) return { valid: false, format: null };
+
   for (const entry of MAGIC_BYTES) {
     let allChecksPass = true;
     for (const check of entry.checks) {

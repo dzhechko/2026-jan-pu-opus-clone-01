@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { trpc } from '@/lib/trpc/client';
 
 const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
@@ -30,6 +30,7 @@ type UploadProgress = {
 type UploadState = 'idle' | 'validating' | 'uploading' | 'confirming' | 'done' | 'error';
 
 function validateClientMagicBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
   for (const entry of MAGIC_CHECKS) {
     let allPass = true;
     for (const check of entry.checks) {
@@ -59,28 +60,50 @@ function uploadPartXhr(
   abortSignal: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (abortSignal.aborted) {
+      reject(new Error('ABORTED'));
+      return;
+    }
+
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
-    xhr.timeout = 300_000; // 5 min per part
+    // Dynamic timeout: min 5min, scales with blob size (assumes min 256 bytes/sec)
+    xhr.timeout = Math.max(300_000, Math.ceil((blob.size / 256) * 1000));
 
-    abortSignal.addEventListener('abort', () => xhr.abort());
+    const onAbort = () => xhr.abort();
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+
+    const cleanup = () => {
+      abortSignal.removeEventListener('abort', onAbort);
+    };
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded);
     };
 
     xhr.onload = () => {
+      cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(xhr.getResponseHeader('ETag') ?? '');
       } else if (xhr.status === 403) {
         reject(new Error('URL_EXPIRED'));
       } else {
-        reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+        reject(new Error(`UPLOAD_FAILED_${xhr.status}`));
       }
     };
 
-    xhr.onerror = () => reject(new Error('NETWORK_ERROR'));
-    xhr.ontimeout = () => reject(new Error('TIMEOUT'));
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error('NETWORK_ERROR'));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new Error('TIMEOUT'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new Error('ABORTED'));
+    };
     xhr.send(blob);
   });
 }
@@ -115,17 +138,38 @@ export function VideoUploader() {
     etaSeconds: 0,
   });
 
+  // Use refs for mutation objects to avoid recreating callbacks every render
   const abortControllerRef = useRef<AbortController | null>(null);
-  const videoIdRef = useRef<string>('');
+  const uploadStateRef = useRef<UploadState>('idle');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createMutation = trpc.video.createFromUpload.useMutation();
   const completeMutation = trpc.video.completeMultipart.useMutation();
   const confirmMutation = trpc.video.confirmUpload.useMutation();
   const abortMutation = trpc.video.abortMultipart.useMutation();
 
+  const createMutationRef = useRef(createMutation);
+  createMutationRef.current = createMutation;
+  const completeMutationRef = useRef(completeMutation);
+  completeMutationRef.current = completeMutation;
+  const confirmMutationRef = useRef(confirmMutation);
+  confirmMutationRef.current = confirmMutation;
+  const abortMutationRef = useRef(abortMutation);
+  abortMutationRef.current = abortMutation;
+
   const urlMutation = trpc.video.createFromUrl.useMutation({
+    onSuccess: () => {
+      // TODO: navigate to video page when routing is set up
+      setUploadState('done');
+    },
     onError: (err) => setError(err.message),
   });
+
+  // Sync state ref
+  const setUploadStateSync = useCallback((state: UploadState) => {
+    uploadStateRef.current = state;
+    setUploadState(state);
+  }, []);
 
   const updateProgress = useCallback((loaded: number, total: number, startTime: number) => {
     const elapsedSec = (Date.now() - startTime) / 1000;
@@ -140,15 +184,31 @@ export function VideoUploader() {
   }, []);
 
   const handleCancel = useCallback(() => {
+    // Only abort — let the async catch block handle state cleanup
     abortControllerRef.current?.abort();
-    setUploadState('idle');
-    setProgress({ percentage: 0, speedMBps: 0, etaSeconds: 0 });
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   const handleFile = useCallback(
     async (file: File) => {
+      // Guard against double uploads
+      if (
+        uploadStateRef.current !== 'idle' &&
+        uploadStateRef.current !== 'error' &&
+        uploadStateRef.current !== 'done'
+      ) {
+        return;
+      }
+
       setError('');
-      if (!ALLOWED_TYPES.includes(file.type)) {
+      // Allow empty file.type (happens on some Linux/browser combos) — magic bytes check handles it
+      if (file.type && !ALLOWED_TYPES.includes(file.type)) {
         setError('Формат не поддерживается. Используйте MP4, WebM, MOV или AVI');
         return;
       }
@@ -162,12 +222,12 @@ export function VideoUploader() {
       }
 
       // Client-side magic bytes pre-check
-      setUploadState('validating');
+      setUploadStateSync('validating');
       try {
         const header = await readFileHeader(file);
         if (!validateClientMagicBytes(header)) {
           setError('Неподдерживаемый формат файла');
-          setUploadState('idle');
+          setUploadStateSync('idle');
           return;
         }
       } catch {
@@ -175,24 +235,23 @@ export function VideoUploader() {
       }
 
       // Create video record + get presigned URL(s)
-      setUploadState('uploading');
+      setUploadStateSync('uploading');
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
       let result;
       try {
-        result = await createMutation.mutateAsync({
+        result = await createMutationRef.current.mutateAsync({
           title: file.name.replace(/\.[^.]+$/, ''),
           fileName: file.name,
           fileSize: file.size,
         });
       } catch (err) {
         setError((err as Error).message);
-        setUploadState('error');
+        setUploadStateSync('error');
         return;
       }
 
-      videoIdRef.current = result.video.id;
       const startTime = Date.now();
 
       // Register beforeunload warning
@@ -231,9 +290,11 @@ export function VideoUploader() {
                 const blob = blobs[partNumber - 1];
                 if (!blob) return;
 
-                let lastError: Error | null = null;
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
+                    // Reset progress for this part before each attempt
+                    partLoaded.set(partNumber, 0);
+
                     const etag = await uploadPartXhr(
                       partUrl,
                       blob,
@@ -246,20 +307,21 @@ export function VideoUploader() {
                       abortController.signal,
                     );
                     completedParts.push({ partNumber, etag });
+                    // Release blob reference after successful upload
+                    blobs[partNumber - 1] = null as unknown as Blob;
                     return;
                   } catch (err) {
-                    lastError = err as Error;
-                    if ((err as Error).message === 'URL_EXPIRED' || attempt === 3) throw err;
+                    const msg = (err as Error).message;
+                    if (msg === 'URL_EXPIRED' || msg === 'ABORTED' || attempt === 3) throw err;
                     await new Promise((r) => setTimeout(r, 1000 * attempt));
                   }
                 }
-                throw lastError;
               }),
             );
           }
 
           if (!abortController.signal.aborted) {
-            await completeMutation.mutateAsync({
+            await completeMutationRef.current.mutateAsync({
               videoId,
               uploadId,
               parts: completedParts.sort((a, b) => a.partNumber - b.partNumber),
@@ -268,40 +330,49 @@ export function VideoUploader() {
         }
 
         if (abortController.signal.aborted) {
-          setUploadState('idle');
+          setUploadStateSync('idle');
+          setProgress({ percentage: 0, speedMBps: 0, etaSeconds: 0 });
           return;
         }
 
         // Confirm upload → start processing
-        setUploadState('confirming');
-        await confirmMutation.mutateAsync({ videoId: result.video.id });
-        setUploadState('done');
+        setUploadStateSync('confirming');
+        await confirmMutationRef.current.mutateAsync({ videoId: result.video.id });
+        setUploadStateSync('done');
       } catch (err) {
-        if (abortController.signal.aborted) {
-          // User cancelled multipart — try to abort on server
+        const message = (err as Error).message;
+
+        if (abortController.signal.aborted || message === 'ABORTED') {
+          // User cancelled — clean up server-side
           if ('uploadId' in result.upload) {
             const upload = result.upload as { uploadId: string; videoId: string };
-            abortMutation.mutate({ videoId: upload.videoId, uploadId: upload.uploadId });
+            abortMutationRef.current.mutate({
+              videoId: upload.videoId,
+              uploadId: upload.uploadId,
+            });
           }
-          setUploadState('idle');
+          // TODO: For simple uploads, add a cancelUpload mutation to delete orphaned Video record
+          setUploadStateSync('idle');
+          setProgress({ percentage: 0, speedMBps: 0, etaSeconds: 0 });
           return;
         }
 
-        const message = (err as Error).message;
         if (message === 'URL_EXPIRED') {
           setError('Ссылка загрузки истекла. Попробуйте снова');
         } else if (message === 'NETWORK_ERROR') {
           setError('Ошибка сети. Проверьте подключение');
+        } else if (message === 'TIMEOUT') {
+          setError('Загрузка прервана по таймауту. Попробуйте снова');
         } else {
           setError(message || 'Ошибка загрузки');
         }
-        setUploadState('error');
+        setUploadStateSync('error');
       } finally {
         window.removeEventListener('beforeunload', beforeUnloadHandler);
         abortControllerRef.current = null;
       }
     },
-    [createMutation, completeMutation, confirmMutation, abortMutation, updateProgress],
+    [updateProgress, setUploadStateSync],
   );
 
   const handleDrop = useCallback(
@@ -316,11 +387,13 @@ export function VideoUploader() {
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     if (!url.trim()) return;
     urlMutation.mutate({ url });
   };
 
-  const isUploading = uploadState === 'uploading' || uploadState === 'validating' || uploadState === 'confirming';
+  const isUploading =
+    uploadState === 'uploading' || uploadState === 'validating' || uploadState === 'confirming';
 
   return (
     <div className="max-w-2xl">
@@ -341,7 +414,11 @@ export function VideoUploader() {
         </button>
       </div>
 
-      {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+      {error && (
+        <div role="alert" className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
       {uploadState === 'done' && (
         <div className="mb-4 p-3 bg-green-50 text-green-600 rounded-lg text-sm">
@@ -366,7 +443,14 @@ export function VideoUploader() {
                   </span>
                 )}
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+              <div
+                role="progressbar"
+                aria-valuenow={progress.percentage}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Загрузка: ${progress.percentage}%`}
+                className="w-full bg-gray-200 rounded-full h-2 mb-4"
+              >
                 <div
                   className="bg-brand-600 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progress.percentage}%` }}
@@ -385,7 +469,10 @@ export function VideoUploader() {
                 e.preventDefault();
                 setDragActive(true);
               }}
-              onDragLeave={() => setDragActive(false)}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                setDragActive(false);
+              }}
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-12 text-center transition ${
                 dragActive ? 'border-brand-500 bg-brand-50' : 'border-gray-300'
@@ -396,12 +483,14 @@ export function VideoUploader() {
               <label className="inline-block px-6 py-2 bg-brand-600 text-white rounded-lg cursor-pointer hover:bg-brand-700">
                 Выбрать файл
                 <input
+                  ref={fileInputRef}
                   type="file"
-                  accept="video/*"
+                  accept=".mp4,.webm,.mov,.avi,video/mp4,video/webm,video/quicktime,video/x-msvideo"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) handleFile(file);
+                    e.target.value = '';
                   }}
                 />
               </label>

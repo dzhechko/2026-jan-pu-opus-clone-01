@@ -6,11 +6,15 @@ import {
 } from '@aws-sdk/client-s3';
 import { getS3Client, getBucket } from './client';
 
+function isS3Error(error: unknown): error is { name: string; $metadata?: { httpStatusCode?: number } } {
+  return typeof error === 'object' && error !== null && 'name' in error;
+}
+
 function isTransientError(error: unknown): boolean {
-  const err = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  if (!isS3Error(error)) return false;
   const transientNames = ['ServiceUnavailable', 'SlowDown', 'InternalError'];
-  if (err.name && transientNames.includes(err.name)) return true;
-  const status = err.$metadata?.httpStatusCode;
+  if (transientNames.includes(error.name)) return true;
+  const status = error.$metadata?.httpStatusCode;
   return status === 500 || status === 502 || status === 503;
 }
 
@@ -22,7 +26,9 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
     } catch (error) {
       lastError = error;
       if (attempt < maxRetries && isTransientError(error)) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        // Exponential backoff with jitter: ~1s, ~2s, ~4s
+        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       throw error;
@@ -42,10 +48,7 @@ export async function headObject(key: string): Promise<{ contentLength: number; 
   };
 }
 
-export async function getObjectBytes(
-  key: string,
-  range?: string,
-): Promise<{ body: ReadableStream | Uint8Array; contentLength: number }> {
+export async function getObjectBytes(key: string, range?: string): Promise<Uint8Array> {
   const s3 = getS3Client();
   const result = await withRetry(() =>
     s3.send(
@@ -56,10 +59,10 @@ export async function getObjectBytes(
       }),
     ),
   );
-  return {
-    body: result.Body as ReadableStream | Uint8Array,
-    contentLength: result.ContentLength ?? 0,
-  };
+  if (!result.Body) {
+    throw new Error(`Object body is empty: ${key}`);
+  }
+  return result.Body.transformToByteArray();
 }
 
 export async function putObject(
@@ -82,13 +85,14 @@ export async function putObject(
 
 export async function deleteObject(key: string): Promise<void> {
   const s3 = getS3Client();
+  // S3 DeleteObject is idempotent (returns 204 even if key doesn't exist).
+  // Extra NoSuchKey catch is defense-in-depth for non-AWS S3 providers (Yandex/Cloud.ru).
   try {
     await withRetry(() =>
       s3.send(new DeleteObjectCommand({ Bucket: getBucket(), Key: key })),
     );
   } catch (error) {
-    const err = error as { name?: string };
-    if (err.name === 'NoSuchKey') return; // idempotent
+    if (isS3Error(error) && error.name === 'NoSuchKey') return;
     throw error;
   }
 }

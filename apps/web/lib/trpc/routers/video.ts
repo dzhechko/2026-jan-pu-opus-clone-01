@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
@@ -97,22 +98,20 @@ export const videoRouter = router({
       }
 
       const ext = extractExtension(input.fileName);
+      const videoId = randomUUID();
+      const key = videoSourcePath(userId, videoId, ext);
+
       const video = await ctx.prisma.video.create({
         data: {
+          id: videoId,
           userId,
           title: input.title,
           sourceType: 'upload',
-          filePath: '', // Set below after we know the key
+          filePath: key,
           fileSize: BigInt(input.fileSize),
           status: 'uploading',
           llmProviderUsed: user.llmProviderPreference,
         },
-      });
-
-      const key = videoSourcePath(userId, video.id, ext);
-      await ctx.prisma.video.update({
-        where: { id: video.id },
-        data: { filePath: key },
       });
 
       const contentType = `video/${ext}`;
@@ -159,11 +158,11 @@ export const videoRouter = router({
         await completeMultipartUpload(video.filePath, input.uploadId, input.parts);
         return { success: true };
       } catch (error) {
+        console.error('completeMultipart failed:', error);
         await abortMultipartUpload(video.filePath, input.uploadId);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Ошибка завершения загрузки',
-          cause: error,
         });
       }
     }),
@@ -184,6 +183,7 @@ export const videoRouter = router({
       if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
 
       await abortMultipartUpload(video.filePath, input.uploadId);
+      await ctx.prisma.video.delete({ where: { id: video.id } });
       return { success: true };
     }),
 
@@ -206,41 +206,20 @@ export const videoRouter = router({
         const head = await headObject(video.filePath);
         fileSize = head.contentLength;
       } catch (error) {
-        const err = error as { name?: string };
-        if (err.name === 'NotFound' || err.name === 'NoSuchKey') {
+        const errName = (error as { name?: string }).name;
+        if (errName === 'NotFound' || errName === 'NoSuchKey') {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Файл не найден в хранилище' });
         }
+        console.error('headObject failed:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Ошибка хранилища',
-          cause: error,
         });
       }
 
       // Validate magic bytes (first 16 bytes)
       try {
-        const rangeResult = await getObjectBytes(video.filePath, 'bytes=0-15');
-        const body = rangeResult.body;
-        let bytes: Uint8Array;
-        if (body instanceof Uint8Array) {
-          bytes = body;
-        } else {
-          // ReadableStream → Uint8Array
-          const reader = (body as ReadableStream<Uint8Array>).getReader();
-          const chunks: Uint8Array[] = [];
-          let done = false;
-          while (!done) {
-            const result = await reader.read();
-            done = result.done;
-            if (result.value) chunks.push(result.value);
-          }
-          bytes = new Uint8Array(chunks.reduce((acc, c) => acc + c.length, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            bytes.set(chunk, offset);
-            offset += chunk.length;
-          }
-        }
+        const bytes = await getObjectBytes(video.filePath, 'bytes=0-15');
 
         const validation = validateMagicBytes(bytes);
         if (!validation.valid) {
@@ -253,10 +232,10 @@ export const videoRouter = router({
         }
       } catch (error) {
         if (error instanceof TRPCError) throw error;
+        console.error('Magic bytes validation failed:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Ошибка чтения файла',
-          cause: error,
         });
       }
 
@@ -291,15 +270,26 @@ export const videoRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      await checkRateLimit('upload', userId, 10, 3600);
+
       const user = await ctx.prisma.user.findUnique({
-        where: { id: ctx.session.user.id },
+        where: { id: userId },
       });
 
       if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
 
+      if (user.minutesUsed >= user.minutesLimit) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Минуты исчерпаны. Обновите тариф',
+        });
+      }
+
       const video = await ctx.prisma.video.create({
         data: {
-          userId: ctx.session.user.id,
+          userId,
           title: input.title || 'Video from URL',
           sourceType: 'url',
           sourceUrl: input.url,
