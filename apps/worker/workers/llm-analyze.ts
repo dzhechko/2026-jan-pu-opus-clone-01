@@ -4,8 +4,7 @@ import pMap from 'p-map';
 import type { LLMJobData, TranscriptSegment, ViralityScore } from '@clipmaker/types';
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 import { createQueue, getRedisConnection } from '@clipmaker/queue/src/queues';
-import { prisma } from '@clipmaker/db';
-import type { Prisma } from '@clipmaker/db';
+import { prisma, type Prisma } from '@clipmaker/db';
 import { LLMRouter } from '../lib/llm-router';
 import { createLogger } from '../lib/logger';
 import {
