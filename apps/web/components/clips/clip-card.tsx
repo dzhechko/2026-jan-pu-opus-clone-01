@@ -1,12 +1,19 @@
 'use client';
 
-import type { Clip, Publication } from '@clipmaker/db';
+import { memo, useMemo } from 'react';
+import type { ViralityScore } from '@clipmaker/types';
 import { ScoreBadge } from './virality-breakdown';
 
-type ClipWithPublications = Clip & { publications: Publication[] };
-
 type ClipCardProps = {
-  clip: ClipWithPublications;
+  clip: {
+    id: string;
+    title: string;
+    duration: number;
+    status: string;
+    viralityScore: unknown;
+    cta: unknown;
+    publications: Array<{ id: string }>;
+  };
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -17,16 +24,18 @@ const STATUS_LABELS: Record<string, string> = {
   failed: 'Ошибка',
 };
 
-export function ClipCard({ clip }: ClipCardProps) {
-  const score = clip.viralityScore as { total?: number; hook?: number; engagement?: number; flow?: number; trend?: number; tips?: string[] } | null;
-  const viralityScore = {
-    total: score?.total ?? 0,
-    hook: score?.hook ?? 0,
-    engagement: score?.engagement ?? 0,
-    flow: score?.flow ?? 0,
-    trend: score?.trend ?? 0,
-    tips: score?.tips ?? [],
-  };
+export const ClipCard = memo(function ClipCard({ clip }: ClipCardProps) {
+  const viralityScore = useMemo((): ViralityScore => {
+    const score = clip.viralityScore as Partial<ViralityScore> | null;
+    return {
+      total: score?.total ?? 0,
+      hook: score?.hook ?? 0,
+      engagement: score?.engagement ?? 0,
+      flow: score?.flow ?? 0,
+      trend: score?.trend ?? 0,
+      tips: score?.tips ?? [],
+    };
+  }, [clip.viralityScore]);
 
   const cta = clip.cta as { text?: string; position?: string; duration?: number } | null;
 
@@ -66,4 +75,4 @@ export function ClipCard({ clip }: ClipCardProps) {
       </div>
     </div>
   );
-}
+});

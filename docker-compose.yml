@@ -36,7 +36,7 @@ services:
 
   worker-llm:
     build: .
-    command: ["node", "dist/apps/worker/workers/llm.js"]
+    command: ["node", "dist/apps/worker/workers/llm-analyze.js"]
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379

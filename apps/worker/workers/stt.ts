@@ -192,18 +192,10 @@ const worker = new Worker<STTJobData>(
         costKopecks: sttCostKopecks,
       });
     } catch (error) {
-      logger.error({ event: 'stt_error', videoId, error });
+      logger.error({ event: 'stt_error', videoId, error: error instanceof Error ? error.message : error });
 
-      // Mark video as failed (best effort)
-      try {
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: 'failed' },
-        });
-      } catch (updateErr) {
-        logger.warn({ event: 'stt_status_update_failed', videoId, error: updateErr });
-      }
-
+      // Don't mark video as failed here — let BullMQ retry first.
+      // The on('failed') handler marks failed only after all retries are exhausted.
       throw error;
     } finally {
       // 10. Cleanup temp files
@@ -222,8 +214,22 @@ const worker = new Worker<STTJobData>(
   },
 );
 
-worker.on('failed', (job, err) => {
+worker.on('failed', async (job, err) => {
+  const videoId = job?.data?.videoId;
   logger.error({ event: 'stt_job_failed', jobId: job?.id, error: err.message });
+
+  // Mark video as failed only after all retries exhausted
+  if (job && videoId && job.attemptsMade === job.opts?.attempts) {
+    try {
+      await prisma.video.update({
+        where: { id: videoId },
+        data: { status: 'failed' },
+      });
+      logger.info({ event: 'stt_video_marked_failed', videoId });
+    } catch (updateErr) {
+      logger.warn({ event: 'stt_status_update_failed', videoId, error: updateErr });
+    }
+  }
 });
 
 export default worker;

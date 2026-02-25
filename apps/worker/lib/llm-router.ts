@@ -137,7 +137,10 @@ export class LLMRouter {
         durationMs,
       };
     } catch (error) {
-      logger.error({ event: 'llm_error', model: modelConfig.model, tier, error });
+      const errInfo = error instanceof Error
+        ? { message: error.message, code: (error as { status?: number }).status }
+        : { message: String(error) };
+      logger.error({ event: 'llm_error', model: modelConfig.model, tier, error: errInfo });
 
       // Fallback to tier2 if tier1 fails
       if (tier < 2) {

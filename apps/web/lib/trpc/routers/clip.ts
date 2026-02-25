@@ -1,7 +1,42 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { checkRateLimit } from '@/lib/auth/rate-limit';
 import { generateDownloadUrl } from '@clipmaker/s3';
+import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
+import { createQueue } from '@clipmaker/queue/src/queues';
+
+// M5: Select only safe fields to avoid exposing internal paths
+const CLIP_PUBLIC_SELECT = {
+  id: true,
+  videoId: true,
+  userId: true,
+  title: true,
+  description: true,
+  startTime: true,
+  endTime: true,
+  duration: true,
+  viralityScore: true,
+  format: true,
+  subtitleSegments: true,
+  cta: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  publications: {
+    select: {
+      id: true,
+      platform: true,
+      status: true,
+      scheduledAt: true,
+      publishedAt: true,
+      platformUrl: true,
+      views: true,
+      likes: true,
+      shares: true,
+    },
+  },
+} as const;
 
 export const clipRouter = router({
   getByVideo: protectedProcedure
@@ -15,8 +50,8 @@ export const clipRouter = router({
 
       const clips = await ctx.prisma.clip.findMany({
         where: { videoId: input.videoId },
-        include: { publications: true },
-        orderBy: { createdAt: 'asc' },
+        select: CLIP_PUBLIC_SELECT,
+        take: 50,
       });
 
       // Sort by viralityScore.total descending (Prisma doesn't support JSON path ordering)
@@ -34,7 +69,7 @@ export const clipRouter = router({
     .query(async ({ ctx, input }) => {
       const clip = await ctx.prisma.clip.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
-        include: { publications: true },
+        select: CLIP_PUBLIC_SELECT,
       });
 
       if (!clip) throw new TRPCError({ code: 'NOT_FOUND', message: 'Клип не найден' });
@@ -48,14 +83,14 @@ export const clipRouter = router({
         title: z.string().min(1).max(255).optional(),
         startTime: z.number().nonnegative().optional(),
         endTime: z.number().positive().optional(),
-        subtitleEdits: z
-          .array(z.object({ index: z.number().int().nonnegative(), text: z.string() }))
-          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await checkRateLimit('clip:update', userId, 30, 60);
+
       const clip = await ctx.prisma.clip.findFirst({
-        where: { id: input.id, userId: ctx.session.user.id },
+        where: { id: input.id, userId },
       });
 
       if (!clip) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -71,12 +106,40 @@ export const clipRouter = router({
         updateData.duration = input.endTime - (input.startTime ?? clip.startTime);
       }
 
+      // C6: Only set rendering if we need to re-render (time changed)
+      const needsRerender = input.startTime !== undefined || input.endTime !== undefined;
+
       const updated = await ctx.prisma.clip.update({
         where: { id: input.id },
-        data: { ...updateData, status: 'rendering' },
+        data: {
+          ...updateData,
+          ...(needsRerender ? { status: 'rendering' as const } : {}),
+        },
+        select: CLIP_PUBLIC_SELECT,
       });
 
-      // TODO: Add re-render job to queue
+      // C6: Enqueue render job when time changes require re-render
+      if (needsRerender) {
+        const fullClip = await ctx.prisma.clip.findUnique({
+          where: { id: input.id },
+          include: { video: true },
+        });
+        if (fullClip?.video) {
+          const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER);
+          await renderQueue.add('render', {
+            clipId: fullClip.id,
+            videoId: fullClip.videoId,
+            sourceFilePath: fullClip.video.filePath,
+            startTime: fullClip.startTime,
+            endTime: fullClip.endTime,
+            format: fullClip.format,
+            subtitleSegments: fullClip.subtitleSegments,
+            cta: fullClip.cta,
+            watermark: false,
+          }, DEFAULT_JOB_OPTIONS);
+        }
+      }
+
       return updated;
     }),
 
@@ -89,8 +152,11 @@ export const clipRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await checkRateLimit('clip:publish', userId, 20, 60);
+
       const clip = await ctx.prisma.clip.findFirst({
-        where: { id: input.id, userId: ctx.session.user.id },
+        where: { id: input.id, userId },
       });
 
       if (!clip) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -118,8 +184,11 @@ export const clipRouter = router({
   download: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await checkRateLimit('clip:download', userId, 30, 60);
+
       const clip = await ctx.prisma.clip.findFirst({
-        where: { id: input.id, userId: ctx.session.user.id },
+        where: { id: input.id, userId },
       });
 
       if (!clip) throw new TRPCError({ code: 'NOT_FOUND', message: 'Клип не найден' });

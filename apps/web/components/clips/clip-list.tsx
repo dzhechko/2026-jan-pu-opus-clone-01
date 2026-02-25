@@ -1,17 +1,38 @@
 'use client';
 
-import type { Clip, Publication } from '@clipmaker/db';
+import { useMemo } from 'react';
 import { ClipCard } from './clip-card';
 
-type ClipWithPublications = Clip & { publications: Publication[] };
+type ClipData = {
+  id: string;
+  title: string;
+  duration: number;
+  status: string;
+  viralityScore: unknown;
+  cta: unknown;
+  publications: Array<{ id: string }>;
+};
 
 type ClipListProps = {
-  clips: ClipWithPublications[];
+  clips: ClipData[];
   videoStatus: string;
   onRetry?: () => void;
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  uploading: 'Загрузка...',
+  downloading: 'Скачивание...',
+  transcribing: 'Транскрибируем...',
+  analyzing: 'Анализируем...',
+  generating_clips: 'Генерируем клипы...',
+};
+
 export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
+  const readyCount = useMemo(
+    () => clips.filter((c) => c.status === 'ready').length,
+    [clips],
+  );
+
   // Processing failed state
   if (videoStatus === 'failed') {
     return (
@@ -55,7 +76,7 @@ export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
             data-testid="processing-spinner"
           />
           <span className="text-sm text-gray-600">
-            Генерируем клипы... {clips.length > 0 ? `(${clips.filter(c => c.status === 'ready').length}/${clips.length} готово)` : ''}
+            Генерируем клипы... {clips.length > 0 ? `(${readyCount}/${clips.length} готово)` : ''}
           </span>
         </div>
         {clips.length > 0 && (
@@ -85,8 +106,7 @@ export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
     return (
       <div className="text-center py-12 bg-white rounded-xl border" data-testid="clips-placeholder">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto mb-3" />
-        <p className="text-gray-500">Обработка видео...</p>
-        <p className="text-sm text-gray-400 mt-1">Статус: {videoStatus}</p>
+        <p className="text-gray-500">{STATUS_LABELS[videoStatus] ?? 'Обработка видео...'}</p>
       </div>
     );
   }

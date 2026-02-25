@@ -1,5 +1,4 @@
 import { Worker } from 'bullmq';
-import { z } from 'zod';
 import pMap from 'p-map';
 import type { LLMJobData, TranscriptSegment, ViralityScore } from '@clipmaker/types';
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
@@ -23,78 +22,37 @@ import {
   SYSTEM_PROMPT as CTA_SUGGESTION_PROMPT,
   buildUserMessage as buildCtaInput,
 } from '../lib/prompts/cta-suggestion';
+import {
+  MomentResponseSchema,
+  ViralityResponseSchema,
+  TitleResponseSchema,
+  CtaResponseSchema,
+  MomentSelectionInputSchema,
+  TranscriptSegmentSchema,
+  LLM_COST_CAP_KOPECKS,
+  MAX_TRANSCRIPT_TOKENS,
+  safeJsonParse,
+  validateMoments,
+  deduplicateMoments,
+  deduplicateTitles,
+  generateFallbackMoments,
+  getMaxClipsForPlan,
+  truncateTranscript,
+  type MomentCandidate,
+  type EnrichedMoment,
+} from './llm-analyze-utils';
 
 const logger = createLogger('worker-llm');
 
-const LLM_COST_CAP_KOPECKS = 1000; // 10₽ safety valve
+// --- Router (fail-fast on missing API keys) ---
 
-// --- Zod Schemas ---
-
-const MomentResponseSchema = z.object({
-  moments: z.array(z.object({
-    start: z.number().min(0),
-    end: z.number().min(0),
-    title: z.string().min(1).max(100),
-    reason: z.string().min(1).max(500),
-    hook_strength: z.number().min(0).max(25),
-  })).min(1).max(15),
-});
-
-const ViralityResponseSchema = z.object({
-  hook: z.number().min(0).max(25),
-  engagement: z.number().min(0).max(25),
-  flow: z.number().min(0).max(25),
-  trend: z.number().min(0).max(25),
-  total: z.number().min(0).max(100),
-  tips: z.array(z.string()).min(1).max(3),
-});
-
-const TitleResponseSchema = z.object({
-  title: z.string().min(1).max(60),
-  alternatives: z.array(z.string().max(60)).max(3),
-});
-
-const CtaResponseSchema = z.object({
-  text: z.string().min(1).max(50).refine(
-    (v) => {
-      const words = v.trim().split(/\s+/).length;
-      return words >= 3 && words <= 8;
-    },
-    { message: 'CTA text must be 3-8 space-separated words' },
-  ),
-  position: z.enum(['end', 'overlay']),
-  duration: z.number().int().min(3).max(5),
-});
-
-// --- Types ---
-
-type MomentCandidate = {
-  start: number;
-  end: number;
-  title: string;
-  reason: string;
-  hookStrength: number;
-};
-
-type EnrichedMoment = {
-  moment: MomentCandidate;
-  viralityScore: ViralityScore;
-  title: string;
-  cta: { text: string; position: 'end' | 'overlay'; duration: number } | null;
-  subtitleSegments: Array<{ start: number; end: number; text: string }>;
-};
-
-type MomentSelectionInput = {
-  fullText: string;
-  tokenCount: number;
-  planId: string;
-  videoDurationSeconds: number;
-};
-
-// --- Router ---
+const cloudruApiKey = process.env.CLOUDRU_API_KEY;
+if (!cloudruApiKey && !process.env.GEMINI_API_KEY) {
+  throw new Error('At least one LLM API key required: CLOUDRU_API_KEY or GEMINI_API_KEY');
+}
 
 const router = new LLMRouter(
-  process.env.CLOUDRU_API_KEY,
+  cloudruApiKey,
   {
     gemini: process.env.GEMINI_API_KEY,
     anthropic: process.env.ANTHROPIC_API_KEY,
@@ -106,22 +64,39 @@ const router = new LLMRouter(
 
 async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
   const { videoId, strategy } = jobData;
-  const input = jobData.input as MomentSelectionInput;
-  const { fullText, tokenCount, planId, videoDurationSeconds } = input;
+
+  // C3: Validate job input with Zod instead of unsafe cast
+  const inputResult = MomentSelectionInputSchema.safeParse(jobData.input);
+  if (!inputResult.success) {
+    throw new Error(`Invalid job input: ${inputResult.error.message}`);
+  }
+  const { fullText: rawFullText, tokenCount, planId, videoDurationSeconds } = inputResult.data;
+
+  // M9: Truncate transcript if too long
+  const fullText = truncateTranscript(rawFullText, MAX_TRANSCRIPT_TOKENS);
 
   let totalLlmCostKopecks = 0;
 
-  // 1. Validate
-  const video = await prisma.video.findUnique({ where: { id: videoId } });
+  // M15: Fetch video with user and transcript in a single query
+  const video = await prisma.video.findUnique({
+    where: { id: videoId },
+    include: { user: true, transcript: true },
+  });
   if (!video || video.status !== 'analyzing') {
     throw new Error(`Invalid video state: ${video?.status ?? 'not found'}`);
   }
-  const user = await prisma.user.findUnique({ where: { id: video.userId } });
-  if (!user) throw new Error('User not found');
-  const transcript = await prisma.transcript.findUnique({ where: { videoId } });
-  if (!transcript) throw new Error('Transcript not found');
+  if (!video.user) throw new Error('User not found');
+  if (!video.transcript) throw new Error('Transcript not found');
 
-  const segments = transcript.segments as unknown as TranscriptSegment[];
+  const user = video.user;
+  const transcript = video.transcript;
+
+  // C3: Validate transcript segments with Zod
+  const rawSegments = Array.isArray(transcript.segments) ? transcript.segments : [];
+  const segments = rawSegments
+    .map((s) => TranscriptSegmentSchema.safeParse(s))
+    .filter((r): r is { success: true; data: TranscriptSegment } => r.success)
+    .map((r) => r.data);
 
   // 1b. Early exit: empty/short transcript
   const wordCount = fullText.trim().split(/\s+/).filter(Boolean).length;
@@ -157,6 +132,12 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
 
     // Retry once on parse failure
     if (!parsed.success) {
+      // C4: Pre-check cost before retry
+      if (totalLlmCostKopecks > LLM_COST_CAP_KOPECKS) {
+        await markVideoFailed(video.id, totalLlmCostKopecks);
+        throw new Error('LLM cost cap exceeded');
+      }
+
       logger.warn({ event: 'llm_moment_parse_failed', videoId, error: parsed.error.message });
       const retryResponse = await router.complete(
         context,
@@ -170,17 +151,28 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
       parsed = MomentResponseSchema.safeParse(safeJsonParse(retryResponse.content));
 
       if (!parsed.success) {
-        throw new Error('Failed to parse moment selection response after retry');
+        // M6: Instead of throwing, use fallback moments (the schema requires .min(1)
+        // so this handles the case where parse keeps failing)
+        logger.warn({ event: 'llm_fallback_moments', videoId, reason: 'Parse failed after retry' });
+        moments = generateFallbackMoments(videoDurationSeconds, 3);
+      } else {
+        moments = parsed.data.moments.map((m) => ({
+          start: m.start,
+          end: m.end,
+          title: m.title,
+          reason: m.reason,
+          hookStrength: m.hook_strength,
+        }));
       }
+    } else {
+      moments = parsed.data.moments.map((m) => ({
+        start: m.start,
+        end: m.end,
+        title: m.title,
+        reason: m.reason,
+        hookStrength: m.hook_strength,
+      }));
     }
-
-    moments = parsed.data.moments.map((m) => ({
-      start: m.start,
-      end: m.end,
-      title: m.title,
-      reason: m.reason,
-      hookStrength: m.hook_strength,
-    }));
 
     logger.info({
       event: 'llm_moment_selection',
@@ -188,45 +180,15 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
       momentsFound: moments.length,
       costKopecks: totalLlmCostKopecks,
     });
-
-    // 3. Handle empty results — retry with tier+1
-    if (moments.length === 0) {
-      const retryContext = { ...context, previousScore: 0 };
-      const retryResponse = await router.complete(
-        retryContext,
-        [
-          { role: 'system', content: MOMENT_SELECTION_PROMPT },
-          { role: 'user', content: buildMomentSelectionInput(fullText, videoDurationSeconds) },
-        ],
-        { jsonMode: true, temperature: 0.7 },
-      );
-      totalLlmCostKopecks += retryResponse.costKopecks;
-
-      const retryParsed = MomentResponseSchema.safeParse(safeJsonParse(retryResponse.content));
-
-      if (retryParsed.success && retryParsed.data.moments.length > 0) {
-        moments = retryParsed.data.moments.map((m) => ({
-          start: m.start,
-          end: m.end,
-          title: m.title,
-          reason: m.reason,
-          hookStrength: m.hook_strength,
-        }));
-      } else {
-        logger.warn({ event: 'llm_fallback_moments', videoId, reason: 'No moments after retry' });
-        moments = generateFallbackMoments(videoDurationSeconds, 3);
-      }
-    }
   }
 
   // 4. Validate and deduplicate moments
   moments = validateMoments(moments, videoDurationSeconds);
   moments = deduplicateMoments(moments);
 
-  // 4b. Cost cap check
+  // C4: Pre-check cost cap before enrichment
   if (totalLlmCostKopecks > LLM_COST_CAP_KOPECKS) {
-    logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks: totalLlmCostKopecks });
-    await prisma.video.update({ where: { id: video.id }, data: { status: 'failed' } });
+    await markVideoFailed(video.id, totalLlmCostKopecks);
     throw new Error('LLM cost cap exceeded');
   }
 
@@ -234,6 +196,11 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
   const enrichedMoments = await pMap(
     moments,
     async (moment): Promise<EnrichedMoment> => {
+      // C4: Pre-check before starting this moment's LLM calls
+      if (totalLlmCostKopecks > LLM_COST_CAP_KOPECKS) {
+        throw new Error('LLM cost cap exceeded');
+      }
+
       // Extract subtitle segments for this moment
       const clipSegments = segments
         .filter((s) => s.start >= moment.start && s.end <= moment.end)
@@ -249,12 +216,6 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
       ]);
 
       totalLlmCostKopecks += scoreResult.costKopecks + titleResult.costKopecks + ctaResult.costKopecks;
-
-      // Cost cap check per iteration
-      if (totalLlmCostKopecks > LLM_COST_CAP_KOPECKS) {
-        logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks: totalLlmCostKopecks });
-        throw new Error('LLM cost cap exceeded');
-      }
 
       return {
         moment,
@@ -275,6 +236,7 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
   const clipsToCreate = deduped.slice(0, maxClips);
 
   // 7. Create clips + update video (transaction)
+  // M11: Use WHERE status='analyzing' to prevent TOCTOU race
   const transactionResult = await prisma.$transaction([
     ...clipsToCreate.map((item) =>
       prisma.clip.create({
@@ -294,7 +256,7 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
       }),
     ),
     prisma.video.update({
-      where: { id: video.id },
+      where: { id: video.id, status: 'analyzing' },
       data: { status: 'generating_clips' },
     }),
     prisma.usageRecord.updateMany({
@@ -303,24 +265,34 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
     }),
   ]);
 
-  // 8. Enqueue render jobs
-  const createdClips = transactionResult.slice(0, clipsToCreate.length);
-  const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER);
+  // 8. Enqueue render jobs (M8: use addBulk instead of sequential adds)
+  const createdClips = transactionResult.slice(0, clipsToCreate.length) as Array<{
+    id: string;
+    startTime: number;
+    endTime: number;
+    format: string;
+    subtitleSegments: unknown;
+    cta: unknown;
+  }>;
 
-  for (const clip of createdClips) {
-    const typedClip = clip as { id: string; startTime: number; endTime: number; format: string; subtitleSegments: unknown; cta: unknown };
-    await renderQueue.add('render', {
-      clipId: typedClip.id,
-      videoId: video.id,
-      sourceFilePath: video.filePath,
-      startTime: typedClip.startTime,
-      endTime: typedClip.endTime,
-      format: typedClip.format,
-      subtitleSegments: typedClip.subtitleSegments,
-      cta: typedClip.cta,
-      watermark: planId === 'free',
-    }, DEFAULT_JOB_OPTIONS);
-  }
+  const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER);
+  await renderQueue.addBulk(
+    createdClips.map((clip) => ({
+      name: 'render',
+      data: {
+        clipId: clip.id,
+        videoId: video.id,
+        sourceFilePath: video.filePath,
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        format: clip.format,
+        subtitleSegments: clip.subtitleSegments,
+        cta: clip.cta,
+        watermark: planId === 'free',
+      },
+      opts: DEFAULT_JOB_OPTIONS,
+    })),
+  );
 
   logger.info({
     event: 'llm_analyze_complete',
@@ -328,6 +300,13 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
     clips: clipsToCreate.length,
     costKopecks: totalLlmCostKopecks,
   });
+}
+
+// --- Helpers: cost cap ---
+
+async function markVideoFailed(videoId: string, costKopecks: number): Promise<void> {
+  logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks });
+  await prisma.video.update({ where: { id: videoId }, data: { status: 'failed' } });
 }
 
 // --- Helpers: LLM calls ---
@@ -352,7 +331,6 @@ async function scoreVirality(
 
   if (!parsed.success) {
     logger.warn({ event: 'llm_scoring_parse_failed', error: parsed.error.message });
-    // Fallback: derive score from moment's hookStrength
     return {
       score: {
         total: moment.hookStrength * 4,
@@ -367,7 +345,6 @@ async function scoreVirality(
   }
 
   const score = parsed.data;
-  // Recalculate total to ensure consistency
   score.total = score.hook + score.engagement + score.flow + score.trend;
 
   return { score, costKopecks: response.costKopecks };
@@ -391,12 +368,10 @@ async function generateTitle(
   const parsed = TitleResponseSchema.safeParse(safeJsonParse(response.content));
 
   if (!parsed.success) {
-    // Fallback: use preliminary title from moment selection
     return { title: moment.title.slice(0, 60), costKopecks: response.costKopecks };
   }
 
   let title = parsed.data.title;
-  // Enforce 60 char limit
   if (title.length > 60) {
     title = title.slice(0, 57) + '...';
   }
@@ -427,105 +402,6 @@ async function generateCta(
   return { cta: parsed.data, costKopecks: response.costKopecks };
 }
 
-// --- Helpers: Pure functions ---
-
-function validateMoments(moments: MomentCandidate[], videoDurationSeconds: number): MomentCandidate[] {
-  return moments.map((m) => {
-    const moment = { ...m };
-    moment.start = Math.max(0, moment.start);
-    moment.end = Math.min(videoDurationSeconds, moment.end);
-
-    if (moment.end - moment.start < 15) {
-      moment.end = moment.start + 15;
-    }
-    if (moment.end - moment.start > 60) {
-      moment.end = moment.start + 60;
-    }
-    if (moment.end > videoDurationSeconds) {
-      moment.end = videoDurationSeconds;
-      moment.start = Math.max(0, moment.end - 30);
-    }
-
-    return moment;
-  });
-}
-
-function deduplicateMoments(moments: MomentCandidate[]): MomentCandidate[] {
-  const sorted = [...moments].sort((a, b) => b.hookStrength - a.hookStrength);
-  const result: MomentCandidate[] = [];
-
-  for (const moment of sorted) {
-    const hasOverlap = result.some((existing) => {
-      const overlapStart = Math.max(moment.start, existing.start);
-      const overlapEnd = Math.min(moment.end, existing.end);
-      const overlapDuration = Math.max(0, overlapEnd - overlapStart);
-      const momentDuration = moment.end - moment.start;
-      return momentDuration > 0 && overlapDuration / momentDuration > 0.5;
-    });
-
-    if (!hasOverlap) {
-      result.push(moment);
-    }
-  }
-
-  return result;
-}
-
-function deduplicateTitles(moments: EnrichedMoment[]): EnrichedMoment[] {
-  const seenTitles = new Set<string>();
-
-  for (const item of moments) {
-    if (seenTitles.has(item.title)) {
-      let suffix = 2;
-      while (seenTitles.has(`${item.title} — Ч.${suffix}`)) {
-        suffix++;
-      }
-      item.title = `${item.title} — Ч.${suffix}`;
-    }
-    seenTitles.add(item.title);
-  }
-
-  return moments;
-}
-
-function generateFallbackMoments(videoDurationSeconds: number, count: number): MomentCandidate[] {
-  const clipDuration = 30;
-  const spacing = (videoDurationSeconds - clipDuration) / (count + 1);
-  const moments: MomentCandidate[] = [];
-
-  for (let i = 1; i <= count; i++) {
-    const start = Math.floor(spacing * i);
-    const end = start + clipDuration;
-    moments.push({
-      start,
-      end,
-      title: `Момент ${i}`,
-      reason: 'Auto-generated fallback',
-      hookStrength: 10,
-    });
-  }
-
-  return moments;
-}
-
-function getMaxClipsForPlan(planId: string): number {
-  switch (planId) {
-    case 'free': return 3;
-    case 'start': return 10;
-    case 'pro': return Infinity;
-    case 'business': return Infinity;
-    default: return 3;
-  }
-}
-
-function safeJsonParse(content: string): unknown {
-  try {
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-
 // --- Worker ---
 
 const worker = new Worker<LLMJobData>(
@@ -549,11 +425,15 @@ const worker = new Worker<LLMJobData>(
 );
 
 worker.on('failed', async (job, err) => {
-  const videoId = job?.data?.videoId;
-  logger.error({ event: 'llm_job_failed', jobId: job?.id, task: job?.data?.task, error: err.message });
+  if (!job) {
+    logger.error({ event: 'llm_job_failed', error: err.message });
+    return;
+  }
 
-  // Set video to failed after all retries exhausted
-  if (videoId && job?.attemptsMade === job?.opts?.attempts) {
+  const videoId = job.data?.videoId;
+  logger.error({ event: 'llm_job_failed', jobId: job.id, task: job.data?.task, error: err.message });
+
+  if (videoId && job.attemptsMade === job.opts?.attempts) {
     try {
       await prisma.video.update({
         where: { id: videoId },

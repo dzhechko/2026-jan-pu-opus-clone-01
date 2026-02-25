@@ -21,7 +21,7 @@ export type VideoRenderJobData = {
   sourceFilePath: string;
   startTime: number;
   endTime: number;
-  format: '9:16' | '1:1' | '16:9';
+  format: 'portrait' | 'square' | 'landscape';
   subtitleSegments: Array<{ start: number; end: number; text: string }>;
   cta?: { text: string; position: 'end' | 'overlay'; duration: number };
   watermark: boolean;

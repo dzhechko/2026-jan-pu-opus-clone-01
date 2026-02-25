@@ -1,19 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-
-type ViralityScore = {
-  total: number;
-  hook: number;
-  engagement: number;
-  flow: number;
-  trend: number;
-  tips?: string[];
-};
-
-type ViralityBreakdownProps = {
-  score: ViralityScore;
-};
+import { memo, useState, useMemo } from 'react';
+import type { ViralityScore } from '@clipmaker/types';
 
 const DIMENSIONS = [
   { key: 'hook' as const, label: 'Хук', description: 'Сила первых 3 секунд' },
@@ -34,7 +22,7 @@ function getBarColor(value: number): string {
   return 'bg-gray-400';
 }
 
-export function ScoreBadge({ score }: { score: ViralityScore }) {
+export const ScoreBadge = memo(function ScoreBadge({ score }: { score: ViralityScore }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const badgeClass = score.total >= 70
@@ -62,9 +50,9 @@ export function ScoreBadge({ score }: { score: ViralityScore }) {
       )}
     </div>
   );
-}
+});
 
-export function ViralityBreakdown({ score }: ViralityBreakdownProps) {
+export const ViralityBreakdown = memo(function ViralityBreakdown({ score }: { score: ViralityScore }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -106,4 +94,4 @@ export function ViralityBreakdown({ score }: ViralityBreakdownProps) {
       )}
     </div>
   );
-}
+});
