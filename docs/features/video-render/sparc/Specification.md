@@ -96,11 +96,11 @@ Feature: Render clip from source video
 **Acceptance Criteria:**
 
 - [ ] Input: `subtitleSegments` array of `{ start, end, text }` (times relative to clip start, i.e., `0` = first frame of clip)
-- [ ] Subtitles rendered using FFmpeg `drawtext` filter (no external ASS/SRT file generation needed for MVP; ASS path is acceptable alternative)
-- [ ] Default style: bold white text (#FFFFFF), black shadow (shadowcolor=black, shadowx=2, shadowy=2), font size auto-scaled to ~5% of frame height
+- [ ] Subtitles rendered using FFmpeg `ass` filter via generated `.ass` file (ASS provides rich Cyrillic styling: bold, outline, shadow, positioning)
+- [ ] Default style: bold white text (#FFFFFF), black outline (3px) + shadow (1.5px), font size 48px for portrait, 36px for square/landscape (via Montserrat Bold font)
 - [ ] Text positioned in the bottom third of the frame (y = h*0.75 - text_h/2)
 - [ ] Long text (>40 chars) is word-wrapped to fit within 90% of frame width
-- [ ] Cyrillic characters render correctly (font: DejaVu Sans or Noto Sans with Cyrillic support, bundled in Docker image)
+- [ ] Cyrillic characters render correctly (font: Montserrat Bold with full Cyrillic support, bundled in Docker image)
 - [ ] Subtitle timing is accurate: text appears at `segment.start` and disappears at `segment.end` relative to clip start
 - [ ] Empty `subtitleSegments` array (length 0) results in no subtitle overlay (render proceeds without drawtext)
 - [ ] Segments with empty `text` field are skipped silently
@@ -363,7 +363,7 @@ Feature: Upload to S3 and update database
 type VideoRenderJobData = {
   clipId: string;
   videoId: string;
-  sourceFilePath: string;       // local path (pre-downloaded from S3 by pipeline orchestrator)
+  sourceFilePath: string;       // S3 key of the source video (worker downloads it)
   startTime: number;            // seconds (float)
   endTime: number;              // seconds (float)
   format: 'portrait' | 'square' | 'landscape';
@@ -440,15 +440,13 @@ The following filter chains are constructed dynamically based on job data:
 
 ### With subtitles (US-VR-02)
 
-Each `subtitleSegment` adds a `drawtext` filter chained with `enable='between(t,start,end)'`:
+Subtitles are rendered via a generated `.ass` file and the `ass` filter:
 
 ```
--vf "scale=...,pad=...,
-     drawtext=text='Привет':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:
-       fontsize=h*0.05:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:
-       x=(w-text_w)/2:y=h*0.75-text_h/2:enable='between(t,0.0,3.5)',
-     drawtext=text='Второй':fontfile=...:...:enable='between(t,4.0,8.2)'"
+-vf "scale=...,pad=...,ass='/tmp/render-AbCdEf/subtitles.ass'"
 ```
+
+The `.ass` file is generated from `subtitleSegments` with Montserrat Bold font, white text, black outline, bottom-center alignment. This approach handles 50+ segments efficiently in a single filter.
 
 ### With CTA overlay (US-VR-03, position=overlay)
 
@@ -498,7 +496,7 @@ scale → pad → [subtitles drawtext...] → [CTA overlay drawbox+drawtext] →
 | NFR-VR-09 | Output file size (60s portrait) | < 30 MB | H.264, CRF 23, 1080p, fast preset |
 | NFR-VR-10 | Memory usage per FFmpeg process | < 512 MB RSS | Monitored; alert if exceeded |
 | NFR-VR-11 | Temp file cleanup guarantee | 100% in `finally` | Even on SIGKILL: orphan cleanup cron (v1.1) |
-| NFR-VR-12 | Font availability | DejaVu Sans Bold with Cyrillic | Installed in Docker image via `fonts-dejavu-core` |
+| NFR-VR-12 | Font availability | Montserrat Bold with full Cyrillic | Installed in Docker image at `/usr/share/fonts/montserrat/` |
 | NFR-VR-13 | No shell injection | All FFmpeg args passed as array to `spawn()`/`execFile()` | Never use `exec()` with string interpolation |
 | NFR-VR-14 | Path traversal prevention | All S3 paths generated via `clipPath()`/`thumbnailPath()` with `assertSafeSegment()` | UUIDs only |
 | NFR-VR-15 | Idempotent re-render | Re-processing same clipId overwrites S3 objects and updates DB | Safe for BullMQ retries |
@@ -539,13 +537,13 @@ scale → pad → [subtitles drawtext...] → [CTA overlay drawbox+drawtext] →
 | Capability | MVP | v1.1 | v2 |
 |-----------|-----|------|-----|
 | Trim + scale + encode (H.264/AAC) | X | | |
-| Subtitle overlay (drawtext) | X | | |
+| ASS subtitle burn-in (styled Cyrillic) | X | | |
 | CTA overlay (end card + banner) | X | | |
 | Watermark for free plan | X | | |
 | S3 upload (clip + thumbnail) | X | | |
 | DB status update (atomic) | X | | |
 | Temp file cleanup | X | | |
-| ASS subtitle file (advanced styling) | | X | |
+| Custom subtitle styles per user | | X | |
 | Custom fonts per user | | X | |
 | GPU-accelerated encoding (NVENC) | | X | |
 | Animated CTA transitions | | | X |

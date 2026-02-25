@@ -156,7 +156,7 @@ ffmpeg -ss <start + duration*0.25> -i input.mp4 -vframes 1 -q:v 2 thumbnail.jpg
 
 ### Thumbnail Specs
 
-- Resolution: 1080x1920 (portrait), 1080x1080 (square), 1920x1080 (landscape)
+- Resolution: 360px wide with auto-height (360x640 portrait, 360x360 square, 640x360 landscape)
 - Format: JPEG, quality 85-90%
 - File size: ~50-150 KB
 - S3 path: `thumbnails/{userId}/{videoId}/{clipId}.jpg`

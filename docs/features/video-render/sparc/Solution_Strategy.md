@@ -207,7 +207,7 @@ For a portrait clip with subtitles, watermark, and overlay CTA:
   [0:v] scale=1080:1920:force_original_aspect_ratio=decrease,
         pad=1080:1920:(ow-iw)/2:(oh-ih)/2 [scaled];
   [scaled] ass='/tmp/clip-{clipId}.ass' [subbed];
-  [subbed] drawtext=text='KlipMaker.ru':fontsize=28:fontcolor=white@0.5:
+  [subbed] drawtext=text='КлипМейкер.ру':fontsize=28:fontcolor=white@0.5:
            x=w-tw-20:y=20:fontfile=/usr/share/fonts/NotoSans.ttf [watermarked];
   [watermarked] drawtext=text='{cta_text}':fontsize=40:fontcolor=white:
            x=(w-tw)/2:y=h-120:

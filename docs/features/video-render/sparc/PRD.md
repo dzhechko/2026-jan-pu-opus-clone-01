@@ -43,7 +43,7 @@ Render subtitle segments directly onto the video using FFmpeg's `ass` (Advanced 
 - Generate a `.ass` file from `subtitleSegments` array (`{start, end, text}`)
 - Timestamps are relative to the clip (not the source video)
 - Default style: white text, black semi-transparent background, bottom-center placement
-- Font: "Noto Sans" (supports Cyrillic), 48px for portrait, 36px for square/landscape
+- Font: Montserrat Bold (OFL license, full Cyrillic), 48px for portrait, 36px for square/landscape
 - Max 2 lines per segment, word-wrap enabled
 - Future: user-customizable `SubtitleStyle` (fontFamily, fontSize, fontColor, backgroundColor, bold, shadow)
 
@@ -58,7 +58,7 @@ Render a call-to-action based on `cta` from job data:
 ### F4: Watermark
 
 For free-plan users (`watermark: true` in job data):
-- Semi-transparent "KlipMaker.ru" text in the top-right corner
+- Semi-transparent "КлипМейкер.ру" text in the bottom-right corner
 - Small enough to not obstruct content, large enough to be readable
 - Applied via FFmpeg `drawtext` filter
 
@@ -202,7 +202,7 @@ VideoRenderJobData {
 - `@clipmaker/queue` (BullMQ worker, queue names)
 - `@clipmaker/types` (VideoRenderJobData type)
 - FFmpeg 7 binary installed in Docker image
-- Font files: Noto Sans (Cyrillic support) installed in Docker image
+- Font files: Montserrat Bold (Cyrillic support, OFL) installed in Docker image
 - Upstream: LLM analyze worker creates Clip records and enqueues render jobs
 - Downstream: Publish worker reads `Clip.filePath` to upload to platforms
 

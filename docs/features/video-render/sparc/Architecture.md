@@ -48,7 +48,7 @@ Pipeline flow:
         ▼
   Redis Queue (video-render)
         │
-        │ BullMQ dequeue (concurrency: 2)
+        │ BullMQ dequeue (concurrency: 3)
         ▼
   Render Worker
    ├─→ downloadFromS3(sourceFilePath) → /tmp/render-{clipId}/source.mp4
@@ -99,7 +99,7 @@ type VideoRenderJobData = {
 7. Upload clip MP4 and thumbnail JPG to S3 using `putObject()`
 8. Update Clip record with `filePath`, `thumbnailPath`, `status: 'ready'`
 9. Cleanup temp directory in `finally` block (always, even on error)
-10. Reduce concurrency from 3 to 2 (FFmpeg is CPU-heavy)
+10. Keep concurrency at 3 (matches existing setting; 4-core VPS handles 3 concurrent renders via context switching)
 
 **Dependencies:**
 - `@clipmaker/db` (Prisma client)
@@ -114,6 +114,8 @@ type VideoRenderJobData = {
 ### 2. FFmpeg Library (`apps/worker/lib/ffmpeg.ts`)
 
 **Current state:** Contains `execFFmpeg()`, `ffprobeGetDuration()`, `extractAudio()`, and `renderClip()`. The `renderClip()` function applies only a scale filter and ignores subtitle, CTA, and watermark fields from `RenderOptions`.
+
+**Format mapping:** The worker receives `format: 'portrait' | 'square' | 'landscape'` from `VideoRenderJobData` and maps to dimensions via `FORMAT_DIMENSIONS` constant: portrait=1080x1920, square=1080x1080, landscape=1920x1080. The existing `RenderOptions.format` type (`'9:16'|'1:1'|'16:9'`) will be updated to accept named formats instead of aspect ratio strings.
 
 **Functions to add:**
 
@@ -171,8 +173,9 @@ Step 3: Download Source Video
 
 Step 4: Write Subtitle File (if subtitleSegments.length > 0)
   ├── Convert segments to ASS format with styling:
-  │   - Font: Arial, 48px, white with black outline
-  │   - Position: bottom center (for portrait/square), bottom third (landscape)
+  │   - Font: Montserrat Bold, 48px portrait / 36px square+landscape, white with black outline
+  │   - PlayRes: format-dependent (1080x1920 portrait, 1080x1080 square, 1920x1080 landscape)
+  │   - Position: bottom center (Alignment: 2)
   │   - Timing: adjusted relative to clip start (segment.start - job.startTime)
   └── writeSubtitleFile(segments, tempDir + '/subs.ass')
 
@@ -180,7 +183,7 @@ Step 5: Build FFmpeg Filter Chain
   ├── Base: getScaleFilter(format)
   ├── + buildSubtitleFilter(tempDir + '/subs.ass')     [if subs exist]
   ├── + buildCtaFilter(cta, endTime - startTime)        [if cta defined]
-  └── + buildWatermarkFilter('KlipMaker.ru')            [if watermark: true]
+  └── + buildWatermarkFilter('КлипМейкер.ру')            [if watermark: true]
 
 Step 6: Render Clip
   ├── renderClip({ inputPath, outputPath: tempDir + '/output.mp4', ... })
@@ -190,7 +193,7 @@ Step 6: Render Clip
 Step 7: Generate Thumbnail
   ├── generateThumbnail(tempDir + '/output.mp4', tempDir + '/thumb.jpg')
   ├── Extract frame at 25% of clip duration (most likely engaging frame)
-  └── Output: JPEG, same resolution as clip
+  └── Output: JPEG, 360px wide with auto-height (scale=360:-1)
 
 Step 8: Upload to S3
   ├── clipKey = clipPath(userId, videoId, clipId) → 'clips/{userId}/{videoId}/{clipId}.mp4'
@@ -243,11 +246,11 @@ None. All required packages, types, S3 operations, queue definitions, and DB mod
 | Subtitle format | ASS (Advanced SubStation Alpha) | FFmpeg's `ass` filter supports styled subtitles (font, color, outline, position). SRT lacks styling. ASS allows per-segment control of appearance without re-encoding overhead. |
 | CTA rendering | FFmpeg `drawtext` filter | No external dependencies. Supports timed enable/disable via `enable='between(t,start,end)'`. Text is sanitized before embedding. |
 | Watermark rendering | FFmpeg `drawtext` filter | Lightweight. No image file dependency. Semi-transparent text in corner. Same filter chain as CTA. |
-| Thumbnail extraction | FFmpeg single-frame extract (`-vframes 1`) | Reuses existing FFmpeg binary. No additional dependency. Fast (single seek + decode). |
+| Thumbnail extraction | FFmpeg single-frame extract (`-vframes 1`, `scale=360:-1`) | Reuses existing FFmpeg binary. 360px wide with auto-height. Fast (single seek + decode). |
 | Thumbnail position | 25% of clip duration | Empirically better than first frame (often black) or middle frame. Early enough to show content, late enough to skip intros. |
 | Temp directory strategy | `os.tmpdir()` + `mkdtemp` per job | OS-managed temp path, random suffix prevents collision between concurrent jobs, cleanup in finally ensures no leak. |
-| S3 upload method | `putObject` with `Buffer` | Clip files are short (15-90s at 1080p, typically 5-30MB). Buffer fits in memory. Multipart upload unnecessary for MVP. |
-| Concurrency | 2 concurrent jobs per worker | FFmpeg is CPU-bound. At 2 concurrent jobs on a 4-core VPS, each job gets ~2 cores. Prevents OOM and CPU starvation. |
+| S3 upload method | `putObject` with `Buffer` | Clip files are short (15-180s at 1080p, typically 5-30MB). Buffer fits in memory. Multipart upload unnecessary for MVP. |
+| Concurrency | 3 concurrent jobs per worker | Matches existing worker setting. On 4-core VPS, Linux scheduler handles context switching for 3 concurrent FFmpeg processes. |
 | Codec settings | H.264 `libx264`, preset `fast`, CRF 23, AAC 128k | Good quality/size balance for shorts. `fast` preset is ~2x faster than `medium` with minimal quality loss at CRF 23. `faststart` enables progressive playback. |
 | Filter chain order | scale, subtitles, CTA, watermark | Scale first ensures consistent canvas. Subtitles render on scaled video. CTA and watermark overlay last so they are never obscured. |
 | Subtitle timing adjustment | Relative to clip start | Transcript segments use absolute timestamps from the source video. Subtract `startTime` to align with the clip's 0-based timeline. |
@@ -292,7 +295,7 @@ None. All required packages, types, S3 operations, queue definitions, and DB mod
 | Dimension | Current (MVP) | Scale Path |
 |-----------|--------------|------------|
 | Concurrency | 2 jobs per worker instance | Add worker-video replicas in Docker Compose. BullMQ distributes jobs automatically. |
-| Clip duration | Max 90s (shorts) | Sufficient for product scope. For longer clips: increase FFmpeg timeout, use streaming upload. |
+| Clip duration | Max 180s (shorts) | Covers all short-form content. FFmpeg timeout (5 min) is sufficient for 180s clips. |
 | File size | Source up to 4GB, output typically 5-30MB | Source is streamed to disk. Output fits in memory buffer for `putObject`. For larger outputs: switch to S3 multipart upload. |
 | Temp storage | OS tmpdir (typically 10-50GB on VPS) | Mount dedicated tmpfs or volume. Monitor with Prometheus disk alerts. |
 | Parallel clips per video | Sequential per worker, parallel across workers | 10 clips from one video = 10 independent jobs. BullMQ distributes across available workers. |

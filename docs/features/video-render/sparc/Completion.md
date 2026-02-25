@@ -206,12 +206,8 @@ volumes:
 
 ### For Development
 
-- [ ] `apps/worker/lib/ffmpeg.ts` — `renderClip()` updated with subtitle, CTA, watermark filter chain
-- [ ] `apps/worker/lib/subtitles.ts` — ASS file generation from `SubtitleSegment[]`
-- [ ] `apps/worker/lib/cta.ts` — CTA drawtext filter builder with position/duration logic
-- [ ] `apps/worker/lib/paths.ts` — S3 key builders for clips and thumbnails
-- [ ] `apps/worker/lib/system.ts` — Disk space check utility
-- [ ] `apps/worker/workers/video-render.ts` — Full pipeline: download source, render, upload, thumbnail, cleanup
+- [ ] `apps/worker/lib/ffmpeg.ts` — Enhanced `renderClip()` with subtitle/CTA/watermark filter chain; added `generateSubtitleFile()`, `generateThumbnail()`, `buildCtaOverlayFilter()`, `buildWatermarkFilter()`, `generateCtaEndCard()`, `concatClipAndCta()`
+- [ ] `apps/worker/workers/video-render.ts` — Full pipeline: S3 download, ASS generation, render, CTA end card concat, thumbnail, S3 upload, DB update, cleanup
 - [ ] S3 download (source) and upload (output + thumbnail) integrated
 - [ ] Temp file cleanup in `finally` block (source cache excluded)
 - [ ] All 7 unit tests passing

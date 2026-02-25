@@ -31,7 +31,7 @@
 | `clamp-cta-duration.test.ts` | `apps/worker/lib/cta` | CTA duration clamping: 5s CTA on 15s clip (no clamp), 5s CTA on 8s clip (clamped to 4s), 0s CTA (skipped), null CTA (skipped). |
 | `thumbnail-args.test.ts` | `apps/worker/lib/ffmpeg` | Thumbnail extraction FFmpeg args: correct `-ss` (midpoint), output dimensions match format, single frame (`-frames:v 1`), JPEG quality. |
 | `scale-filter.test.ts` | `apps/worker/lib/ffmpeg` | `getScaleFilter()` returns correct resolution for each format: 1080x1920, 1080x1080, 1920x1080 with proper padding. |
-| `s3-output-path.test.ts` | `apps/worker/lib/paths` | Output S3 key generation: `clips/{videoId}/{clipId}.mp4` for video, `clips/{videoId}/{clipId}_thumb.jpg` for thumbnail. Validates UUID format in path. |
+| `s3-output-path.test.ts` | `packages/s3/src/paths` | Output S3 key generation: `clips/{userId}/{videoId}/{clipId}.mp4` for clip, `thumbnails/{userId}/{videoId}/{clipId}.jpg` for thumbnail. Validates UUID format in path segments. |
 | `disk-space-check.test.ts` | `apps/worker/lib/system` | Disk space check utility: returns true when sufficient, false when low. Mock `fs.statfs` with various free space values. |
 
 ### Integration Tests (5 tests, with real FFmpeg)
@@ -67,7 +67,7 @@ Feature: Video Clip Rendering
     And FFmpeg should produce a 1080x1920 MP4 file
     And the file should contain burned-in subtitles
     And the file should contain "КлипМейкер.ру" watermark
-    And the file should be uploaded to S3 at "clips/webinar-123/clip-001.mp4"
+    And the file should be uploaded to S3 at "clips/{userId}/webinar-123/clip-001.mp4"
     And the clip status should become "ready"
 
   Scenario: Render clip with CTA overlay
@@ -76,11 +76,12 @@ Feature: Video Clip Rendering
     Then the rendered video should show CTA text throughout the clip
     And the CTA should appear as semi-transparent banner at bottom-center
 
-  Scenario: Render clip with CTA at end
+  Scenario: Render clip with CTA end card (appended)
     Given a clip of 30 seconds with CTA "Запишись на курс!" at position "end" for 5 seconds
     When the video-render worker processes the clip
-    Then the CTA should appear during the last 5 seconds of the clip
-    And the total clip duration should remain 30 seconds
+    Then the output video duration should be 35 seconds (+/- 0.5s)
+    And the last 5 seconds should show a black frame with centered white text "Запишись на курс!"
+    And the CTA end card is appended via FFmpeg concat demuxer (stream copy)
 
   Scenario: Handle missing source video gracefully
     Given a clip references a video file that does not exist in S3

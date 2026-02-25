@@ -73,12 +73,9 @@ const FORMAT_DIMENSIONS: Record<ClipFormat, { width: number; height: number }> =
   landscape: { width: 1920, height: 1080 },
 };
 
-// Format-to-FFmpeg aspect ratio string
-const FORMAT_RATIO: Record<ClipFormat, string> = {
-  portrait:  '9:16',
-  square:    '1:1',
-  landscape: '16:9',
-};
+// Note: The existing RenderOptions.format type ('9:16'|'1:1'|'16:9') will be updated
+// to accept named formats ('portrait'|'square'|'landscape') matching VideoRenderJobData.
+// The FORMAT_DIMENSIONS map above is used for resolution lookup.
 ```
 
 ## Zod Schema: Job Data Validation
@@ -96,7 +93,7 @@ const SubtitleSegmentSchema = z.object({
 const CTASchema = z.object({
   text: z.string().min(1).max(50),
   position: z.enum(['end', 'overlay']),
-  duration: z.number().int().min(3).max(10),
+  duration: z.number().int().min(3).max(5),
 });
 
 const VideoRenderJobSchema = z.object({
@@ -113,8 +110,8 @@ const VideoRenderJobSchema = z.object({
   (d) => d.endTime > d.startTime,
   { message: 'endTime must be greater than startTime' }
 ).refine(
-  (d) => d.endTime - d.startTime <= 120,
-  { message: 'Clip duration must not exceed 120 seconds' }
+  (d) => d.endTime - d.startTime <= 180,
+  { message: 'Clip duration must not exceed 180 seconds' }
 );
 ```
 
@@ -222,7 +219,7 @@ HANDLER(job: Job<VideoRenderJobData>):
 
     // 7. GENERATE ASS SUBTITLE FILE (if segments exist)
     IF ctx.subtitleSegments.length > 0:
-      assContent = generateSubtitleFile(ctx.subtitleSegments, ctx.clip.duration)
+      assContent = generateSubtitleFile(ctx.subtitleSegments, ctx.clip.duration, ctx.clip.format)
       await fs.writeFile(ctx.paths.assFile, assContent, 'utf-8')
       logger.info({ event: 'ass_generated', segments: ctx.subtitleSegments.length })
 
@@ -242,11 +239,31 @@ HANDLER(job: Job<VideoRenderJobData>):
     await execFFmpegSpawn(ffmpegArgs, FFMPEG_TIMEOUT)
     logger.info({ event: 'ffmpeg_complete', clipId: ctx.clip.id })
 
-    // 10. GENERATE THUMBNAIL
+    // 9b. CTA END CARD (if cta.position === 'end', concat a black frame with CTA text)
+    IF ctx.cta != null AND ctx.cta.position === 'end':
+      ctaCardPath = path.join(tmpDir, `cta-${ctx.clip.id}.mp4`)
+      finalPath = path.join(tmpDir, `final-${ctx.clip.id}.mp4`)
+      await generateCtaEndCard(ctx.cta, FORMAT_DIMENSIONS[ctx.clip.format].width,
+                               FORMAT_DIMENSIONS[ctx.clip.format].height, ctaCardPath)
+      await concatClipAndCta(ctx.paths.renderedClip, ctaCardPath, finalPath)
+      // Replace rendered clip path with the final concatenated version
+      await fs.unlink(ctx.paths.renderedClip).catch(() => {})
+      await fs.rename(finalPath, ctx.paths.renderedClip)
+      await fs.unlink(ctaCardPath).catch(() => {})
+      logger.info({ event: 'cta_end_card_appended', clipId: ctx.clip.id,
+                    ctaDuration: ctx.cta.duration })
+
+    // 10. GENERATE THUMBNAIL (non-fatal: if it fails, proceed without thumbnail)
     await job.updateProgress(70)
     thumbnailTimeOffset = ctx.clip.duration * 0.25
-    await generateThumbnail(ctx.paths.renderedClip, ctx.paths.thumbnail, thumbnailTimeOffset)
-    logger.info({ event: 'thumbnail_generated', clipId: ctx.clip.id })
+    thumbnailGenerated = false
+    TRY:
+      await generateThumbnail(ctx.paths.renderedClip, ctx.paths.thumbnail, thumbnailTimeOffset)
+      thumbnailGenerated = true
+      logger.info({ event: 'thumbnail_generated', clipId: ctx.clip.id })
+    CATCH thumbnailError:
+      logger.warn({ event: 'thumbnail_failed', clipId: ctx.clip.id,
+                    error: thumbnailError.message })
 
     // 11. UPLOAD RENDERED MP4 + THUMBNAIL TO S3
     await job.updateProgress(80)
@@ -254,9 +271,10 @@ HANDLER(job: Job<VideoRenderJobData>):
     await putObject(ctx.s3Keys.clip, clipBuffer, 'video/mp4')
     logger.info({ event: 's3_upload_clip', key: ctx.s3Keys.clip })
 
-    thumbBuffer = await fs.readFile(ctx.paths.thumbnail)
-    await putObject(ctx.s3Keys.thumbnail, thumbBuffer, 'image/jpeg')
-    logger.info({ event: 's3_upload_thumbnail', key: ctx.s3Keys.thumbnail })
+    IF thumbnailGenerated:
+      thumbBuffer = await fs.readFile(ctx.paths.thumbnail)
+      await putObject(ctx.s3Keys.thumbnail, thumbBuffer, 'image/jpeg')
+      logger.info({ event: 's3_upload_thumbnail', key: ctx.s3Keys.thumbnail })
 
     // 12. UPDATE CLIP IN DB: filePath, thumbnailPath, status='ready'
     await job.updateProgress(95)
@@ -264,7 +282,7 @@ HANDLER(job: Job<VideoRenderJobData>):
       where: { id: ctx.clip.id },
       data: {
         filePath: ctx.s3Keys.clip,
-        thumbnailPath: ctx.s3Keys.thumbnail,
+        thumbnailPath: thumbnailGenerated ? ctx.s3Keys.thumbnail : null,
         status: 'ready',
       },
     })
@@ -330,13 +348,8 @@ STEPS:
   IF ctx.subtitleSegments.length > 0:
     // No need for separate -i; ass filter references file path directly
 
-  // Apply filter chain
-  IF filterChain contains 'filter_complex':
-    args.push('-filter_complex', filterChain)
-    args.push('-map', '[vout]')                  // Map video from filter chain output
-    args.push('-map', '0:a?')                    // Map audio from first input (optional)
-  ELSE:
-    args.push('-vf', filterChain)                // Simple video filter
+  // Apply video filter chain (always -vf; single linear chain, no multiple inputs)
+  args.push('-vf', filterChain)
 
   // Video codec settings
   args.push(
@@ -390,9 +403,9 @@ STEPS:
     escapedPath = escapeFFmpegPath(assFilePath)
     filters.push(`ass='${escapedPath}'`)
 
-  // 3. CTA OVERLAY
-  IF cta != null:
-    ctaFilter = buildCtaDrawtext(cta, clipDuration, width, height)
+  // 3. CTA OVERLAY (only for position='overlay'; 'end' is handled via concat post-render)
+  IF cta != null AND cta.position === 'overlay':
+    ctaFilter = buildCtaOverlayFilter(cta, clipDuration, width, height)
     filters.push(ctaFilter)
 
   // 4. WATERMARK — semi-transparent text bottom-right
@@ -400,20 +413,9 @@ STEPS:
     watermarkFilter = buildWatermarkDrawtext(width, height)
     filters.push(watermarkFilter)
 
-  // Join all filters into a single chain
-  // For simple -vf: comma-separated
-  // For filter_complex: chain with commas, label output [vout]
-  IF filters.length == 1:
-    RETURN filters[0]
-
-  // Multiple filters — use filter_complex with labeled output
-  chain = filters.join(',')
-  RETURN chain + '[vout]'    // Note: caller decides -vf vs -filter_complex
-
-  // Correction: if we have only scale (single filter), use -vf.
-  // If we have multiple filters, we still use -vf since all are in a single chain.
-  // filter_complex is only needed with multiple inputs.
-  // Since ass reads file directly (not a stream input), all filters are single-chain.
+  // All filters are in a single linear chain (no stream splitting).
+  // The `ass` filter reads its file directly (not a separate input stream),
+  // so we always use `-vf` with comma-separated filters.
   RETURN filters.join(',')
 
 
@@ -428,57 +430,123 @@ HELPER escapeFFmpegPath(filePath: string): string
     .replace(/'/g, "'\\''")
 ```
 
-## Helper: buildCtaDrawtext(cta, clipDuration, width, height)
+## Helper: buildCtaOverlayFilter(cta, clipDuration, width, height)
 
 ```
 INPUT:
-  cta: CTA                     // { text, position, duration }
+  cta: CTA                     // { text, position: 'overlay', duration }
   clipDuration: number          // seconds
   width: number                 // target video width
   height: number                // target video height
-OUTPUT: string                  // FFmpeg drawtext filter string
+OUTPUT: string                  // FFmpeg drawtext filter string for overlay CTA
+NOTE: Only called when cta.position === 'overlay'. For 'end', see generateCtaEndCard().
 
 STEPS:
-  // Escape text for FFmpeg drawtext
-  escapedText = cta.text
-    .replace(/'/g, "'\\''")
-    .replace(/:/g, '\\:')
+  escapedText = escapeDrawtext(cta.text)
 
-  // Common drawtext options
   fontSize = Math.round(width * 0.035)       // ~38px at 1080w
   fontColor = 'white'
-  borderColor = 'black'
   borderWidth = 2
+  borderColor = 'black'
   shadowColor = 'black@0.6'
-  shadowX = 2
-  shadowY = 2
-
-  // Position: centered horizontally, 75% down vertically
-  xPos = '(w-text_w)/2'
-  yPos = Math.round(height * 0.75)
-
-  // Background box for readability
   boxColor = 'black@0.5'
   boxBorderW = 16
 
-  SWITCH cta.position:
-    CASE 'end':
-      // Show CTA only during the last N seconds of the clip
-      enableStart = clipDuration - cta.duration
-      enableExpr = `enable='between(t,${enableStart},${clipDuration})'`
-      RETURN `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
-             `borderw=${borderWidth}:bordercolor=${borderColor}:` +
-             `shadowcolor=${shadowColor}:shadowx=${shadowX}:shadowy=${shadowY}:` +
-             `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
-             `x=${xPos}:y=${yPos}:${enableExpr}`
+  xPos = '(w-text_w)/2'
+  yPos = Math.round(height * 0.85)           // Bottom 15% of frame
 
-    CASE 'overlay':
-      // Persistent overlay — visible for the entire clip
-      RETURN `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
-             `borderw=${borderWidth}:bordercolor=${borderColor}:` +
-             `shadowcolor=${shadowColor}:shadowx=${shadowX}:shadowy=${shadowY}:` +
-             `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
-             `x=${xPos}:y=${yPos}`
+  // Show CTA during the last N seconds of the clip
+  enableStart = clipDuration - cta.duration
+  enableExpr = `enable='between(t,${enableStart},${clipDuration})'`
+
+  RETURN `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
+         `borderw=${borderWidth}:bordercolor=${borderColor}:` +
+         `shadowcolor=${shadowColor}:shadowx=2:shadowy=2:` +
+         `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
+         `x=${xPos}:y=${yPos}:${enableExpr}`
+```
+
+## Helper: generateCtaEndCard(cta, width, height, outputPath)
+
+```
+INPUT:
+  cta: CTA                     // { text, position: 'end', duration }
+  width: number                 // target video width (e.g. 1080)
+  height: number                // target video height (e.g. 1920)
+  outputPath: string            // temp file path for the CTA card video
+OUTPUT: void (writes MP4 to outputPath)
+NOTE: Generates a short video (black background + centered CTA text) for concat.
+
+STEPS:
+  escapedText = escapeDrawtext(cta.text)
+  fontSize = Math.round(width * 0.045)       // ~49px at 1080w — larger on end card
+  fontColor = 'white'
+  boxColor = 'black@0.5'
+  boxBorderW = 20
+
+  args = [
+    '-y',
+    '-f', 'lavfi',
+    '-i', `color=c=black:s=${width}x${height}:d=${cta.duration}:r=30`,
+    '-f', 'lavfi',
+    '-i', `anullsrc=channel_layout=stereo:sample_rate=44100`,
+    '-t', String(cta.duration),
+    '-vf', `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
+           `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
+           `x=(w-text_w)/2:y=(h-text_h)/2`,
+    '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+
+  await execFFmpeg(args, 30_000)   // 30s timeout for short card generation
+
+
+HELPER escapeDrawtext(text: string): string
+  // Escape FFmpeg drawtext special characters
+  RETURN text
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "'\\''")
+    .replace(/:/g, '\\:')
+```
+
+## Helper: concatClipAndCta(clipPath, ctaPath, outputPath)
+
+```
+INPUT:
+  clipPath: string              // Path to rendered main clip MP4
+  ctaPath: string               // Path to CTA end card MP4
+  outputPath: string            // Path for the final concatenated MP4
+OUTPUT: void (writes final MP4 to outputPath)
+
+STEPS:
+  // 1. Write concat list file
+  concatListPath = clipPath.replace('.mp4', '-concat.txt')
+  concatContent = `file '${clipPath}'\nfile '${ctaPath}'\n`
+  await fs.writeFile(concatListPath, concatContent, 'utf-8')
+
+  // 2. Concatenate using concat demuxer (stream copy, no re-encoding)
+  args = [
+    '-y',
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', concatListPath,
+    '-c', 'copy',                  // Stream copy — no re-encoding
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+
+  await execFFmpeg(args, 30_000)   // 30s timeout for concat
+
+  // 3. Cleanup intermediate files
+  await fs.unlink(concatListPath).catch(() => {})
+
+NOTES:
+  - Uses stream copy (`-c copy`) — no quality loss, near-instant
+  - CTA end card must have matching codec settings (libx264, AAC) for concat to work
+  - The `anullsrc` in generateCtaEndCard ensures audio stream is present for concat
 ```
 
 ## Helper: buildWatermarkDrawtext(width, height)
@@ -508,41 +576,47 @@ STEPS:
          `x=${xPos}:y=${yPos}`
 ```
 
-## Helper: generateSubtitleFile(segments, clipDuration)
+## Helper: generateSubtitleFile(segments, clipDuration, format)
 
 ```
 INPUT:
   segments: SubtitleSegment[]   // [{ start, end, text }] — times relative to clip start
   clipDuration: number          // seconds
+  format: ClipFormat            // 'portrait' | 'square' | 'landscape'
 OUTPUT: string                  // ASS file content
 
 STEPS:
-  // 1. ASS HEADER
+  // 1. RESOLVE FORMAT-DEPENDENT VALUES
+  { width, height } = FORMAT_DIMENSIONS[format]
+  fontSize = format === 'portrait' ? 48 : 36
+  maxCharsPerLine = format === 'portrait' ? 35 : 50
+
+  // 2. ASS HEADER
   header = `[Script Info]
 Title: КлипМейкер Subtitles
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${width}
+PlayResY: ${height}
 WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,56,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+Style: Default,Montserrat,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,30,30,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
   // Style breakdown:
-  //   Fontname: Arial (widely available, clean for shorts)
-  //   Fontsize: 56 (large for mobile readability at PlayRes 1080x1920)
+  //   Fontname: Montserrat (clean modern font, full Cyrillic, OFL license)
+  //   Fontsize: 48 (portrait) or 36 (square/landscape) — mobile-readable
   //   PrimaryColour: &H00FFFFFF (white, AABBGGRR format)
   //   OutlineColour: &H00000000 (black outline)
   //   BackColour: &H80000000 (semi-transparent black shadow)
   //   Bold: -1 (true — bold text)
   //   BorderStyle: 1 (outline + shadow)
   //   Outline: 3 (3px outline thickness)
-  //   Shadow: 1 (1px shadow distance)
+  //   Shadow: 1.5 (1.5px shadow distance)
   //   Alignment: 2 (bottom center — SSA numpad: 2=bottom-center)
   //   MarginV: 60 (vertical margin from bottom in pixels)
   //   WrapStyle: 0 (smart word wrap at PlayResX boundary)
@@ -565,8 +639,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       .replace(/\{/g, '\\{')           // Escape ASS override blocks
       .replace(/\}/g, '\\}')
 
-    // Word wrap: insert \N at ~35 chars for mobile readability
-    cleanText = wrapSubtitleText(cleanText, 35)
+    // Word wrap: insert \N at maxCharsPerLine boundary for mobile readability
+    cleanText = wrapSubtitleText(cleanText, maxCharsPerLine)
 
     events.push(`Dialogue: 0,${startTimecode},${endTimecode},Default,,0,0,0,,${cleanText}`)
 
