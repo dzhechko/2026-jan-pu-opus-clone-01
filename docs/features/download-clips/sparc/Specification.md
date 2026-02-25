@@ -63,11 +63,17 @@ Feature: Download All Clips
     Then the ZIP contains only the 3 ready clips
     And I see a note: "Скачано 3 из 5 клипов. 2 клипа ещё рендерятся"
 
-  Scenario: ZIP generation timeout
-    Given I have 10 large clips
-    When ZIP generation takes longer than expected
-    Then I see a progress indicator
+  Scenario: ZIP generation with progress
+    Given I have 10 clips totaling up to 500 MB
+    When I click "Скачать все"
+    Then I see a spinner with text "Подготовка архива..."
+    And the button is disabled during generation
     And the download completes within 30 seconds
+
+  Scenario: ZIP generation error
+    Given the server fails to stream a clip from S3 mid-archive
+    When I am downloading a ZIP
+    Then I see an error notification: "Ошибка создания архива. Попробуйте ещё раз"
 ```
 
 ### US-DC-03: Free Tier Watermark Indicator
@@ -95,7 +101,8 @@ Feature: Watermark Indicator
   Scenario: Upgrade prompt on watermark badge click
     Given I am on the Free plan
     When I click the watermark badge
-    Then I see an upgrade prompt with plan comparison
+    Then I see a tooltip: "Уберите водяной знак на тарифе Start (990₽/мес)"
+    And the tooltip contains a link to /dashboard/billing
 ```
 
 ## Non-Functional Requirements

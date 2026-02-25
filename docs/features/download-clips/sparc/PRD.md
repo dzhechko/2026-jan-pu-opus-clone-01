@@ -25,7 +25,7 @@ Users can create and edit clips but cannot download them. The pipeline ends at "
 | Metric | Target |
 |--------|--------|
 | Single download latency | < 2s to start download |
-| ZIP generation | < 10s for 10 clips |
+| ZIP generation | < 30s for 10 clips |
 | Download success rate | > 99% |
 | User flow completion | Upload → Download in same session |
 
