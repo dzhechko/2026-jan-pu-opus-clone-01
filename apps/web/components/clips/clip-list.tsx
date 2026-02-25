@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { ClipCard } from './clip-card';
+import { useDownloadAll } from '@/lib/hooks/use-clip-download';
 
 type ClipData = {
   id: string;
@@ -15,7 +16,9 @@ type ClipData = {
 
 type ClipListProps = {
   clips: ClipData[];
+  videoId: string;
   videoStatus: string;
+  userPlan?: string;
   onRetry?: () => void;
 };
 
@@ -27,17 +30,19 @@ const STATUS_LABELS: Record<string, string> = {
   generating_clips: 'Генерируем клипы...',
 };
 
-export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
+export function ClipList({ clips, videoId, videoStatus, userPlan, onRetry }: ClipListProps) {
   const readyCount = useMemo(
     () => clips.filter((c) => c.status === 'ready').length,
     [clips],
   );
 
+  const { downloadAll, downloading: downloadingAll, error: downloadAllError, clearError } = useDownloadAll();
+
   // Processing failed state
   if (videoStatus === 'failed') {
     return (
       <div className="text-center py-12 bg-white rounded-xl border">
-        <div className="text-red-500 text-2xl mb-2">✕</div>
+        <div className="text-red-500 text-2xl mb-2">&times;</div>
         <p className="text-gray-700 font-medium">Ошибка обработки</p>
         <p className="text-sm text-gray-400 mt-1">Не удалось проанализировать видео</p>
         {onRetry && (
@@ -82,7 +87,7 @@ export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
         {clips.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {clips.map((clip) => (
-              <ClipCard key={clip.id} clip={clip} />
+              <ClipCard key={clip.id} clip={clip} userPlan={userPlan} />
             ))}
           </div>
         )}
@@ -120,12 +125,47 @@ export function ClipList({ clips, videoStatus, onRetry }: ClipListProps) {
     );
   }
 
+  const renderingCount = clips.length - readyCount;
+
   // Completed — show all clips sorted by score
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {clips.map((clip) => (
-        <ClipCard key={clip.id} clip={clip} />
-      ))}
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">Клипы ({clips.length})</h3>
+        <div className="flex items-center gap-3">
+          {renderingCount > 0 && readyCount > 0 && (
+            <span className="text-xs text-gray-400">
+              {renderingCount} ещё рендерятся
+            </span>
+          )}
+          <button
+            onClick={() => downloadAll(videoId)}
+            disabled={downloadingAll || readyCount === 0}
+            title={readyCount === 0 ? 'Нет готовых клипов для скачивания' : `Скачать ${readyCount} клипов`}
+            className="
+              px-4 py-1.5 text-sm font-medium rounded
+              bg-blue-600 text-white
+              hover:bg-blue-700 transition-colors
+              disabled:opacity-50 disabled:cursor-not-allowed
+            "
+          >
+            {downloadingAll ? 'Подготовка архива...' : `Скачать все (${readyCount})`}
+          </button>
+        </div>
+      </div>
+
+      {downloadAllError && (
+        <div className="mb-4 flex items-center gap-2 p-2 bg-red-50 rounded text-sm text-red-600" role="alert">
+          <span>{downloadAllError}</span>
+          <button onClick={clearError} className="ml-auto hover:text-red-800">&times;</button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {clips.map((clip) => (
+          <ClipCard key={clip.id} clip={clip} userPlan={userPlan} />
+        ))}
+      </div>
     </div>
   );
 }

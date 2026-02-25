@@ -1,17 +1,19 @@
 import { notFound } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth/options';
+import { headers } from 'next/headers';
 import { prisma } from '@clipmaker/db';
 import { ClipList } from '@/components/clips/clip-list';
 import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
 
 export default async function VideoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return null;
+  const headerStore = await headers();
+  const userId = headerStore.get('x-user-id');
+  const userPlan = headerStore.get('x-user-plan') ?? 'free';
+
+  if (!userId) return null;
 
   const video = await prisma.video.findFirst({
-    where: { id, userId: session.user.id },
+    where: { id, userId },
     include: {
       transcript: { select: { language: true, tokenCount: true, sttModel: true } },
       clips: {
@@ -36,7 +38,12 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
 
       <div className="space-y-6">
         <TranscriptViewer videoId={video.id} videoStatus={video.status} />
-        <ClipList clips={video.clips} videoStatus={video.status} />
+        <ClipList
+          clips={video.clips}
+          videoId={video.id}
+          videoStatus={video.status}
+          userPlan={userPlan}
+        />
       </div>
     </div>
   );

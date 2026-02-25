@@ -5,9 +5,12 @@ type ActionBarProps = {
   isSaving: boolean;
   isRendering: boolean;
   isFailed: boolean;
+  clipStatus: string;
+  isDownloading: boolean;
   onSave: () => void;
   onPreview: () => void;
   onReset: () => void;
+  onDownload: () => void;
 };
 
 export function ActionBar({
@@ -15,9 +18,12 @@ export function ActionBar({
   isSaving,
   isRendering,
   isFailed,
+  clipStatus,
+  isDownloading,
   onSave,
   onPreview,
   onReset,
+  onDownload,
 }: ActionBarProps) {
   const saveDisabled = !isDirty || isSaving || isRendering;
   const resetDisabled = !isDirty || isSaving;
@@ -56,6 +62,24 @@ export function ActionBar({
       )}
 
       <div className="flex gap-2">
+        {clipStatus === 'ready' && (
+          <button
+            onClick={onDownload}
+            disabled={isDownloading}
+            aria-label="Скачать MP4"
+            className="
+              px-4 py-2 text-sm font-medium rounded
+              border border-border
+              bg-secondary text-secondary-foreground
+              hover:bg-secondary/80
+              transition-colors
+              disabled:opacity-50 disabled:cursor-not-allowed
+            "
+          >
+            {isDownloading ? 'Скачивание...' : 'Скачать MP4'}
+          </button>
+        )}
+
         <button
           onClick={onPreview}
           className="

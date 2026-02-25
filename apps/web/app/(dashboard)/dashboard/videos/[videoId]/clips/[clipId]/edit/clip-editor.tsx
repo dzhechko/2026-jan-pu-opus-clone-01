@@ -12,6 +12,7 @@ import { Timeline } from '@/components/clip-editor/timeline';
 import { SubtitleEditor } from '@/components/clip-editor/subtitle-editor';
 import { MetadataPanel } from '@/components/clip-editor/metadata-panel';
 import { ActionBar } from '@/components/clip-editor/action-bar';
+import { useClipDownload } from '@/lib/hooks/use-clip-download';
 import type { ClipFormat, SubtitleSegment, CTA } from '@clipmaker/types';
 
 type ClipEditorProps = {
@@ -63,6 +64,14 @@ export function ClipEditor({
   const updateSubtitleText = useStore((s) => s.updateSubtitleText);
   const setActiveSubtitleIndex = useStore((s) => s.setActiveSubtitleIndex);
   const activeSubtitleIndex = useStore((s) => s.activeSubtitleIndex);
+
+  // ── Download hook ──────────────────────────────────────
+  const { download, downloadingId } = useClipDownload();
+
+  const handleDownload = useCallback(() => {
+    const state = useStore.getState();
+    download(state.clip.id, state.clip.title);
+  }, [download, useStore]);
 
   // ── tRPC mutation ────────────────────────────────────────
 
@@ -343,9 +352,12 @@ export function ClipEditor({
           isSaving={isSaving}
           isRendering={isRendering}
           isFailed={isFailed}
+          clipStatus={clip.status}
+          isDownloading={downloadingId === clip.id}
           onSave={handleSave}
           onPreview={handlePreview}
           onReset={handleReset}
+          onDownload={handleDownload}
         />
       </div>
     </div>
