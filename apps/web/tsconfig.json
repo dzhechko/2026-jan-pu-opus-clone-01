@@ -7,10 +7,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./*"]
     },
     "baseUrl": "."
   },

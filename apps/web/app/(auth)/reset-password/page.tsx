@@ -33,7 +33,7 @@ function RequestResetForm() {
 
     const result = emailSchema.safeParse({ email });
     if (!result.success) {
-      setEmailError(result.error.issues[0].message);
+      setEmailError(result.error.issues[0]?.message ?? 'Ошибка валидации');
       return;
     }
 

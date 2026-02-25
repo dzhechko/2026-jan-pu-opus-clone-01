@@ -63,7 +63,7 @@ export const authOptions: NextAuthOptions = {
       // On initial sign-in, populate token with user data
       if (user) {
         token.id = user.id;
-        token.email = user.email;
+        token.email = user.email ?? '';
         token.planId = (user as { planId?: string }).planId ?? 'free';
       }
 
@@ -106,10 +106,10 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
-        session.user.email = token.email as string;
-        (session.user as { planId?: string }).planId = token.planId as string;
-        session.user.name = token.name as string | null;
+        session.user.id = token.id;
+        session.user.email = token.email ?? '';
+        session.user.planId = token.planId;
+        session.user.name = token.name ?? null;
       }
       return session;
     },

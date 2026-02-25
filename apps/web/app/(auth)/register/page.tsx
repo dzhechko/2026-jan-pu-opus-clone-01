@@ -89,6 +89,7 @@ export default function RegisterPage() {
       name: result.data.name,
       email: result.data.email,
       password: result.data.password,
+      confirmPassword: result.data.confirmPassword,
     });
   }
 
