@@ -125,7 +125,7 @@ export const clipRouter = router({
           include: { video: true },
         });
         if (fullClip?.video) {
-          const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER);
+          const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER!);
           await renderQueue.add('render', {
             clipId: fullClip.id,
             videoId: fullClip.videoId,
@@ -141,6 +141,185 @@ export const clipRouter = router({
       }
 
       return updated;
+    }),
+
+  updateFull: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        title: z.string().min(1).max(200).optional(),
+        description: z.string().max(1000).nullable().optional(),
+        startTime: z.number().nonnegative().optional(),
+        endTime: z.number().positive().optional(),
+        format: z.enum(['portrait', 'square', 'landscape']).optional(),
+        subtitleSegments: z
+          .array(
+            z.object({
+              start: z.number().nonnegative(),
+              end: z.number().positive(),
+              text: z.string().max(500),
+              style: z
+                .object({
+                  fontFamily: z.string().optional(),
+                  fontSize: z.number().positive().optional(),
+                  fontColor: z.string().optional(),
+                  backgroundColor: z.string().optional(),
+                  bold: z.boolean().optional(),
+                  shadow: z.boolean().optional(),
+                })
+                .optional(),
+            }),
+          )
+          .max(500)
+          .optional(),
+        cta: z
+          .object({
+            text: z.string().min(1).max(100),
+            position: z.enum(['end', 'overlay']),
+            duration: z.number().min(3).max(10),
+          })
+          .nullable()
+          .optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await checkRateLimit('clip:update', userId, 30, 60);
+
+      const existingClip = await ctx.prisma.clip.findFirst({
+        where: { id: input.id, userId },
+      });
+
+      if (!existingClip) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Клип не найден' });
+      }
+
+      if (existingClip.status === 'rendering') {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Клип в процессе рендеринга. Дождитесь завершения.',
+        });
+      }
+
+      // Validate time boundaries
+      const newStartTime = input.startTime ?? existingClip.startTime;
+      const newEndTime = input.endTime ?? existingClip.endTime;
+      const newDuration = newEndTime - newStartTime;
+
+      if (newDuration < 5) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Минимальная длительность клипа: 5 сек',
+        });
+      }
+
+      if (newDuration > 180) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Максимальная длительность клипа: 180 сек',
+        });
+      }
+
+      if (newStartTime >= newEndTime) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Начало клипа должно быть раньше конца',
+        });
+      }
+
+      // Validate subtitle segment ordering
+      if (input.subtitleSegments) {
+        for (const seg of input.subtitleSegments) {
+          if (seg.start >= seg.end) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Начало субтитра должно быть раньше конца',
+            });
+          }
+        }
+      }
+
+      // Determine if re-render is needed
+      const needsReRender =
+        (input.startTime !== undefined &&
+          input.startTime !== existingClip.startTime) ||
+        (input.endTime !== undefined &&
+          input.endTime !== existingClip.endTime) ||
+        (input.format !== undefined &&
+          input.format !== existingClip.format) ||
+        (input.subtitleSegments !== undefined &&
+          JSON.stringify(input.subtitleSegments) !==
+            JSON.stringify(existingClip.subtitleSegments)) ||
+        (input.cta !== undefined &&
+          JSON.stringify(input.cta) !== JSON.stringify(existingClip.cta));
+
+      // Build update payload
+      const updateData: Record<string, unknown> = {};
+
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.startTime !== undefined) updateData.startTime = input.startTime;
+      if (input.endTime !== undefined) updateData.endTime = input.endTime;
+      if (input.startTime !== undefined || input.endTime !== undefined) {
+        updateData.duration = newDuration;
+      }
+      if (input.format !== undefined) updateData.format = input.format;
+      if (input.subtitleSegments !== undefined) {
+        updateData.subtitleSegments = input.subtitleSegments;
+      }
+      if (input.cta !== undefined) updateData.cta = input.cta;
+
+      if (needsReRender) {
+        updateData.status = 'rendering';
+      }
+
+      const updatedClip = await ctx.prisma.clip.update({
+        where: { id: input.id },
+        data: updateData,
+        select: {
+          id: true,
+          videoId: true,
+          title: true,
+          description: true,
+          startTime: true,
+          endTime: true,
+          duration: true,
+          format: true,
+          subtitleSegments: true,
+          cta: true,
+          viralityScore: true,
+          status: true,
+          thumbnailPath: true,
+        },
+      });
+
+      // Queue render job if needed
+      if (needsReRender) {
+        const fullClip = await ctx.prisma.clip.findUnique({
+          where: { id: input.id },
+          include: { video: true },
+        });
+        if (fullClip?.video) {
+          const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER!);
+          await renderQueue.add(
+            'render',
+            {
+              clipId: fullClip.id,
+              videoId: fullClip.videoId,
+              sourceFilePath: fullClip.video.filePath,
+              startTime: fullClip.startTime,
+              endTime: fullClip.endTime,
+              format: fullClip.format,
+              subtitleSegments: fullClip.subtitleSegments,
+              cta: fullClip.cta,
+              watermark: false,
+            },
+            DEFAULT_JOB_OPTIONS,
+          );
+        }
+      }
+
+      return updatedClip;
     }),
 
   publish: protectedProcedure
