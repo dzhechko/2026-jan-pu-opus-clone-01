@@ -41,14 +41,14 @@ Display four stat cards:
 - **Billing period end**: `subscription.currentPeriodEnd` formatted as `DD.MM.YYYY`
 
 ### F-03: Paginated Video List
-Replace the current 10-item flat list with cursor-based pagination (10 items per page). Each row shows:
+Replace the current 10-item flat list with offset-based pagination with Prev/Next page controls (10 items per page). Page numbers in URL (`?page=N`). Each row shows:
 - Video thumbnail (from `Video.thumbnailUrl`, fallback placeholder if null)
 - Title (truncated to 60 chars)
-- Status badge (localized Russian label, colored: `UPLOADING` yellow, `PROCESSING` blue, `READY` green, `FAILED` red, `QUEUED` gray)
+- Status badge (localized Russian label, colored per actual Prisma enum — see F-08)
 - Created date (relative: "2 часа назад", "вчера", etc.)
 - Clip count for that video
 
-"Load more" button at bottom triggers next page fetch.
+Prev/Next page controls at the bottom with current page indicator.
 
 ### F-04: Empty State and Onboarding
 When the user has zero videos, replace the video list with:
@@ -61,7 +61,7 @@ When the user has zero videos, replace the video list with:
 ### F-05: Loading Skeletons
 Add `loading.tsx` to `app/(dashboard)/dashboard/` that renders:
 - 4 skeleton stat cards (pulsing rectangles)
-- 3 skeleton video list rows (thumbnail placeholder + text lines)
+- 5 skeleton video list rows (thumbnail placeholder + text lines)
 
 Skeleton must paint within 500ms of navigation start.
 
@@ -77,14 +77,15 @@ Add `not-found.tsx` to `app/(dashboard)/` that renders:
 - Link back to dashboard
 
 ### F-08: Status Badges
-Create a `StatusBadge` component that maps `Video.status` enum values to localized Russian labels with colored backgrounds:
+Create a `StatusBadge` component that maps `Video.status` enum values (from actual Prisma schema) to localized Russian labels with colored backgrounds:
 | Status | Label | Color |
 |--------|-------|-------|
-| UPLOADING | Загрузка | yellow/amber |
-| QUEUED | В очереди | gray |
-| PROCESSING | Обработка | blue |
-| READY | Готово | green |
-| FAILED | Ошибка | red |
+| `uploading` | Загрузка | blue |
+| `transcribing` | Транскрибация | blue |
+| `analyzing` | Анализ | purple |
+| `generating_clips` | Генерация клипов | purple |
+| `completed` | Готово | green |
+| `failed` | Ошибка | red |
 
 ### F-09: Plan Usage Progress Bar
 A horizontal progress bar inside the "Minutes used" stat card. Width = `(minutesUsed / minutesLimit) * 100%`. Color thresholds: green (<50%), yellow (50-80%), red (>80%). Show text: `{minutesUsed} из {minutesLimit} мин`.
@@ -105,7 +106,7 @@ Add a stat card showing `subscription.currentPeriodEnd`. Format: `"до DD.MM.YY
 |--------|--------|-------------|
 | Dashboard p95 load time | <2s | Lighthouse CI, Web Vitals |
 | Skeleton first paint | <500ms | Performance observer |
-| Pagination functional | Load more works for users with >10 videos | E2E test |
+| Pagination functional | Prev/Next page controls work for users with >10 videos | E2E test |
 | Auth integration | No NextAuth references in dashboard code | Code grep |
 | Error recovery | Error boundary renders and reset works | E2E test |
 | Empty state conversion | >30% of new users upload within first session | Analytics event |
@@ -127,7 +128,7 @@ Add a stat card showing `subscription.currentPeriodEnd`. Format: `"до DD.MM.YY
 |------------|--------|-------|
 | Custom JWT auth middleware | Exists | Sets `x-user-id`, `x-user-email` headers |
 | `/api/auth/logout` endpoint | Exists | Clears cookies, returns 200 |
-| tRPC `video.list` procedure | Exists | Needs cursor pagination param added |
+| tRPC `video.list` procedure | Exists | Needs offset pagination (`skip`/`take`) param added |
 | tRPC `user.me` procedure | Exists | Returns user profile + subscription |
 | Prisma `Video` model with `thumbnailUrl` | Exists | Field may be null for older videos |
 | Prisma `Subscription` model with `currentPeriodEnd` | Exists | Null if free plan |
@@ -138,6 +139,6 @@ Add a stat card showing `subscription.currentPeriodEnd`. Format: `"до DD.MM.YY
 - Next.js 15 App Router with React 19 Server Components by default; `'use client'` only where interactivity is required
 - shadcn/ui components + Tailwind for all UI
 - tRPC for all data fetching
-- Cursor-based pagination (not offset) for scalability
+- Offset-based pagination with Prev/Next page controls (page numbers in URL, better for Server Components and SEO)
 - All text in Russian (no i18n framework needed for MVP, hardcoded strings acceptable)
 - WCAG 2.1 AA accessibility (color contrast, keyboard navigation, screen reader labels)

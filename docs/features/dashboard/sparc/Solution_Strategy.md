@@ -67,7 +67,7 @@ async function getUser() {
 
 **Implementation:**
 ```typescript
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 10;
 
 const videos = await prisma.video.findMany({
   where: { userId: user.sub },

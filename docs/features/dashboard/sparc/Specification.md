@@ -84,18 +84,24 @@ Feature: Paginated Video List
     When I navigate to the dashboard
     Then I see 10 video items in the list
     And each item shows a thumbnail, title, status badge, date, and clip count
-    And I see a "Загрузить ещё" button at the bottom
+    And I see Prev/Next page controls at the bottom
+    And the "Назад" button is disabled (first page)
+    And the "Вперёд" button is enabled
+    And I see "Страница 1 из 3"
 
-  Scenario: Load more fetches next page
-    Given I am on the dashboard and see the first 10 videos
-    When I click "Загрузить ещё"
-    Then 10 more videos are appended to the list
-    And the button remains visible because there are 5 more videos
+  Scenario: Navigate to next page
+    Given I am on the dashboard page 1
+    When I click "Вперёд"
+    Then the URL updates to "?page=2"
+    And I see 10 videos on page 2
+    And both "Назад" and "Вперёд" buttons are enabled
 
-  Scenario: Last page hides the load more button
-    Given I have loaded 20 videos and click "Загрузить ещё" again
-    Then 5 more videos are appended
-    And the "Загрузить ещё" button is no longer visible
+  Scenario: Last page disables the next button
+    Given I am on page 2 and click "Вперёд"
+    Then the URL updates to "?page=3"
+    And I see 5 videos on the last page
+    And the "Вперёд" button is disabled
+    And the "Назад" button is enabled
 
   Scenario: Video without thumbnail shows placeholder
     Given a video has no thumbnailUrl
@@ -103,9 +109,9 @@ Feature: Paginated Video List
     Then a placeholder with a video icon is shown in the thumbnail area
 
   Scenario: Status badge shows localized label
-    Given a video has status "PROCESSING"
+    Given a video has status "analyzing"
     When it appears in the list
-    Then the badge shows "Обработка" with a blue background
+    Then the badge shows "Анализ" with a purple background
 
   Scenario: Video titles are truncated
     Given a video has a title longer than 60 characters
@@ -120,20 +126,21 @@ Feature: Paginated Video List
 
 #### Acceptance Criteria
 
-- [ ] Video list uses cursor-based pagination via tRPC `video.list` with `cursor` and `limit` params
+- [ ] Video list uses offset-based pagination with `skip`/`take` params; page number in URL (`?page=N`)
 - [ ] Page size is 10 items
 - [ ] Each row displays: thumbnail (16:9, lazy-loaded), title (max 60 chars + ellipsis), status badge, relative date, clip count
 - [ ] Thumbnail fallback: gray placeholder with video icon when `thumbnailUrl` is null
-- [ ] Status badge component (`StatusBadge`) maps enum to Russian label + color:
-  - `UPLOADING` -> "Загрузка" (yellow/amber)
-  - `QUEUED` -> "В очереди" (gray)
-  - `PROCESSING` -> "Обработка" (blue)
-  - `READY` -> "Готово" (green)
-  - `FAILED` -> "Ошибка" (red)
-- [ ] "Загрузить ещё" button visible when `hasNextPage` is true; hidden otherwise
+- [ ] Status badge component (`StatusBadge`) maps Prisma enum to Russian label + color:
+  - `uploading` -> "Загрузка" (blue)
+  - `transcribing` -> "Транскрибация" (blue)
+  - `analyzing` -> "Анализ" (purple)
+  - `generating_clips` -> "Генерация клипов" (purple)
+  - `completed` -> "Готово" (green)
+  - `failed` -> "Ошибка" (red)
+- [ ] Prev/Next page controls with current page indicator ("Страница N из M"); "Назад" disabled on first page, "Вперёд" disabled on last page
 - [ ] Dates formatted with relative time in Russian locale ("2 часа назад", "вчера", "3 дня назад")
 - [ ] Videos sorted by `createdAt` descending (newest first)
-- [ ] Loading state for "Загрузить ещё" button (spinner or disabled state while fetching)
+- [ ] Page navigation updates URL params (bookmarkable, browser back/forward compatible)
 
 ---
 
@@ -203,7 +210,7 @@ Feature: Loading and Error States
     Given I navigate to the dashboard
     When the page is loading
     Then I see 4 skeleton stat cards with pulsing animation
-    And I see 3 skeleton video list rows with thumbnail and text placeholders
+    And I see 5 skeleton video list rows with thumbnail and text placeholders
     And the skeleton paints within 500ms of navigation start
 
   Scenario: Error boundary catches tRPC failure
@@ -228,7 +235,7 @@ Feature: Loading and Error States
 #### Acceptance Criteria
 
 - [ ] `loading.tsx` exists at `app/(dashboard)/dashboard/loading.tsx`
-- [ ] Skeleton contains: 4 stat card skeletons (matching card dimensions) + 3 video row skeletons
+- [ ] Skeleton contains: 4 stat card skeletons (matching card dimensions) + 5 video row skeletons
 - [ ] Skeletons use shadcn/ui `Skeleton` component with pulse animation
 - [ ] `error.tsx` exists at `app/(dashboard)/dashboard/error.tsx`
 - [ ] Error UI shows "Не удалось загрузить данные" message
@@ -346,13 +353,13 @@ Feature: Dashboard Navigation and Logout
 |--------|--------|----------------|
 | Dashboard page load (p95) | < 2 seconds | Lighthouse CI in CI/CD pipeline |
 | Skeleton first paint | < 500ms | `PerformanceObserver` measuring LCP of skeleton |
-| "Load more" pagination response | < 1 second | tRPC response time logging |
+| Page navigation response | < 1 second | tRPC response time logging |
 | Time to interactive | < 3 seconds | Lighthouse TBT metric |
 
 Implementation notes:
 - Stats cards and video list should be Server Components where possible to reduce client JS
 - Video thumbnails must use `loading="lazy"` and explicit `width`/`height` to avoid layout shift
-- Pagination fetches only 10 items per request (cursor-based, no full count query)
+- Pagination fetches only 10 items per request (offset-based with `skip`/`take`)
 
 ### NFR-02: Accessibility (WCAG 2.1 AA)
 
@@ -361,7 +368,7 @@ Implementation notes:
 - Status badges have sufficient color contrast (4.5:1 ratio minimum for text)
 - Status information is not conveyed by color alone (text labels always present)
 - All interactive elements are keyboard-accessible (Tab, Enter, Escape)
-- Focus management: after "Load more", focus moves to the first newly loaded item
+- Focus management: after page navigation, focus moves to the top of the video list
 - Error boundary: "Попробовать снова" button receives focus automatically
 - Skip-to-content link in layout for screen reader users
 
@@ -399,7 +406,7 @@ Implementation notes:
 | Procedure | Input | Output | Notes |
 |-----------|-------|--------|-------|
 | `user.me` | (none, from auth context) | `{ id, name, email, minutesUsed, minutesLimit, videoCount, clipCount, subscription: { currentPeriodEnd } }` | May need to add `minutesLimit` and `subscription` to response |
-| `video.list` | `{ cursor?: string, limit: number }` | `{ items: Video[], nextCursor?: string }` | Needs cursor pagination added to existing procedure |
+| `video.list` | `{ page?: number, limit: number }` | `{ items: Video[], totalPages: number, currentPage: number }` | Needs offset pagination (`skip`/`take`) added to existing procedure |
 | `video.list` items | - | `{ id, title, status, thumbnailUrl, clipCount, createdAt }` | `clipCount` may need to be added as computed field |
 
 ### Prisma Models Referenced

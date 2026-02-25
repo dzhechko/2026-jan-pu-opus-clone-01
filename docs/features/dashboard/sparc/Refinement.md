@@ -19,13 +19,13 @@
 **Scenario:** Power user or course creator with extensive video library.
 
 **Handling:**
-- Offset pagination with `PAGE_SIZE = 12`
+- Offset pagination with `PAGE_SIZE = 10`
 - PostgreSQL index on `(userId, createdAt DESC)` for efficient queries
 - `COUNT(*)` query runs in parallel with data query (Promise.all)
 - Maximum page links shown: 7 (first, last, current ± 2, ellipsis)
 - Consider adding `WHERE createdAt > ?` filter for date-range narrowing
 
-**Test:** Seed database with 1500 videos, verify pagination renders correct page count (125 pages), verify query time < 100ms.
+**Test:** Seed database with 1500 videos, verify pagination renders correct page count (150 pages), verify query time < 100ms.
 
 ### 3. Video Status Transitions During Page View (Stale Data)
 
@@ -37,7 +37,7 @@
 - StatusBadge shows last-known state with timestamp: "В обработке (2 мин назад)"
 - Future enhancement: Server-Sent Events or polling for active processing jobs
 
-**Test:** Verify StatusBadge renders all status variants correctly: `uploading`, `processing`, `completed`, `failed`, `published`.
+**Test:** Verify StatusBadge renders all 6 status variants correctly: `uploading`, `transcribing`, `analyzing`, `generating_clips`, `completed`, `failed`.
 
 ### 4. Invalid Page Number in URL
 
@@ -100,7 +100,7 @@
 
 | Test | Description | Priority |
 |------|-------------|----------|
-| StatusBadge mapping | All 5 status values → correct color + label | High |
+| StatusBadge mapping | All 6 status values (`uploading`, `transcribing`, `analyzing`, `generating_clips`, `completed`, `failed`) → correct color + label | High |
 | Pagination math | `calculatePages(total, pageSize, current)` → page numbers array | High |
 | Auth decode | Valid JWT → user object, expired → null, malformed → null | High |
 | Stats calculation | Aggregate video counts by status | Medium |
@@ -150,11 +150,11 @@ Feature: Dashboard Overview
   Scenario: Pagination with many videos
     Given I am logged in as a user with 50 videos
     When I navigate to the dashboard
-    Then I should see 12 videos on the first page
+    Then I should see 10 videos on the first page
     And I should see pagination showing 5 pages
-    When I click page 3
+    When I click "Вперёд" twice to reach page 3
     Then the URL should contain "?page=3"
-    And I should see videos 25-36
+    And I should see videos 21-30
 
   Scenario: Invalid page number
     Given I am logged in as a user with 10 videos

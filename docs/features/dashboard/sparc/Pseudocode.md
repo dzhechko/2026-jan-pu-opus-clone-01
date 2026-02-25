@@ -24,7 +24,7 @@ type DashboardUser = {
   planId: string
 }
 
-JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET)
+JWT_SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
 
 async function DashboardLayout({ children }):
   cookieStore = await cookies()
@@ -91,7 +91,7 @@ async function DashboardPage({ searchParams }):
         minutesUsed: true,
         minutesLimit: true,
         plan: { select: { id: true, name: true, displayName: true } },
-        billingPeriodStart: true,
+        subscription: { select: { currentPeriodEnd: true } },
       },
     }),
 
@@ -169,35 +169,38 @@ type StatsGridProps = {
     minutesUsed: number
     minutesLimit: number
     plan: { id: string; name: string; displayName: string }
-    billingPeriodStart: Date
+    subscription: { currentPeriodEnd: Date } | null
   }
   videoCount: number
   clipCount: number
 }
 
 function StatsGrid({ user, videoCount, clipCount }):
-  // Calculate billing period end (30 days from start)
-  billingPeriodEnd = new Date(user.billingPeriodStart)
-  billingPeriodEnd.setDate(billingPeriodEnd.getDate() + 30)
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
       <MinutesCard
         minutesUsed={user.minutesUsed}
         minutesLimit={user.minutesLimit}
       />
 
       <StatCard
+        icon={<VideoIcon />}
+        label="Видео загружено"
+        value={videoCount}
+        aria-label={`Загружено ${videoCount} видео`}
+      />
+
+      <StatCard
         icon={<ScissorsIcon />}
         label="Клипов создано"
         value={clipCount}
+        aria-label={`Создано ${clipCount} клипов`}
       />
 
       <PlanBadge
         planName={user.plan.displayName}
         planId={user.plan.id}
-        billingPeriodEnd={billingPeriodEnd}
-        videoCount={videoCount}
+        subscription={user.subscription}
       />
     </div>
   )
@@ -222,10 +225,10 @@ function MinutesCard({ minutesUsed, minutesLimit }):
     ? Math.round((minutesUsed / minutesLimit) * 100)
     : 0
 
-  // Color thresholds: green < 70%, yellow 70-90%, red > 90%
+  // Color thresholds: green < 50%, yellow 50-80%, red > 80%
   progressColor =
-    percentage >= 90 ? 'bg-red-500'
-    : percentage >= 70 ? 'bg-yellow-500'
+    percentage > 80 ? 'bg-red-500'
+    : percentage >= 50 ? 'bg-yellow-500'
     : 'bg-green-500'
 
   return (
@@ -236,10 +239,17 @@ function MinutesCard({ minutesUsed, minutesLimit }):
       </div>
 
       <div className="text-2xl font-bold mb-2">
-        {minutesUsed} / {minutesLimit} мин
+        {minutesUsed} из {minutesLimit} мин
       </div>
 
-      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div
+        className="w-full h-2 bg-gray-100 rounded-full overflow-hidden"
+        role="progressbar"
+        aria-valuenow={minutesUsed}
+        aria-valuemin={0}
+        aria-valuemax={minutesLimit}
+        aria-label={`Использовано ${minutesUsed} из ${minutesLimit} минут`}
+      >
         <div
           className={`h-full rounded-full transition-all ${progressColor}`}
           style={{ width: `${Math.min(percentage, 100)}%` }}
@@ -299,18 +309,19 @@ PLAN_COLORS: Record<string, string> = {
 type PlanBadgeProps = {
   planName: string
   planId: string
-  billingPeriodEnd: Date
-  videoCount: number
+  subscription: { currentPeriodEnd: Date } | null
 }
 
-function PlanBadge({ planName, planId, billingPeriodEnd, videoCount }):
+function PlanBadge({ planName, planId, subscription }):
   colorClass = PLAN_COLORS[planId] ?? PLAN_COLORS.free
-  daysLeft = Math.max(0, Math.ceil(
-    (billingPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-  ))
+
+  // Format billing period from subscription.currentPeriodEnd
+  billingText = subscription
+    ? `до ${new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(subscription.currentPeriodEnd)}`
+    : 'Бесплатный план'
 
   return (
-    <div className="rounded-xl border bg-white p-6 shadow-sm">
+    <div className="rounded-xl border bg-white p-6 shadow-sm" aria-label={`Тарифный план: ${planName}`}>
       <div className="flex items-center gap-3 mb-4">
         <SparklesIcon className="h-5 w-5 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">Тарифный план</span>
@@ -322,9 +333,8 @@ function PlanBadge({ planName, planId, billingPeriodEnd, videoCount }):
         </span>
       </div>
 
-      <div className="text-xs text-muted-foreground space-y-1">
-        <div>{videoCount} видео обработано</div>
-        <div>Осталось {daysLeft} дней до обновления</div>
+      <div className="text-xs text-muted-foreground">
+        {billingText}
       </div>
     </div>
   )
@@ -659,9 +669,9 @@ function DashboardLoading():
       {/* Title skeleton */}
       <div className="h-8 w-40 bg-gray-200 rounded" />
 
-      {/* Stats grid skeleton: 3 cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {Array.from({ length: 3 }).map((_, i) => (
+      {/* Stats grid skeleton: 4 cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
             <div className="flex items-center gap-3">
               <div className="h-5 w-5 bg-gray-200 rounded" />
@@ -676,9 +686,9 @@ function DashboardLoading():
       {/* Section title skeleton */}
       <div className="h-6 w-32 bg-gray-200 rounded" />
 
-      {/* Video list skeleton: 10 rows */}
+      {/* Video list skeleton: 5 rows */}
       <div className="rounded-xl border bg-white shadow-sm divide-y">
-        {Array.from({ length: 10 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4 p-4">
             {/* Thumbnail skeleton */}
             <div className="h-12 w-20 bg-gray-200 rounded" />
@@ -801,31 +811,27 @@ export default DashboardNotFound
 Shown when the user has no videos yet.
 
 ```
-import Link from 'next/link'
 import { UploadCloudIcon } from 'lucide-react'
+import { VideoUploader } from '@/components/video-uploader'
 
 function EmptyState():
   return (
     <div className="flex flex-col items-center justify-center min-h-[300px]
-                    rounded-xl border border-dashed bg-white p-12 space-y-4">
+                    rounded-xl border border-dashed bg-white p-12 space-y-6">
       <UploadCloudIcon className="h-16 w-16 text-muted-foreground/50" />
 
-      <h3 className="text-lg font-semibold">У вас пока нет видео</h3>
+      <h3 className="text-lg font-semibold">Загрузите первое видео</h3>
 
       <p className="text-muted-foreground text-center max-w-sm">
-        Загрузите первый вебинар, и КлипМейкер автоматически
-        создаст из него промо-шортсы с субтитрами.
+        КлипМейкер превратит ваш вебинар в 10 промо-шортсов за 5 минут
       </p>
 
-      <Link
-        href="/dashboard/upload"
-        className="inline-flex items-center gap-2 px-6 py-3 rounded-lg
-                   bg-primary text-primary-foreground hover:bg-primary/90
-                   transition-colors font-medium"
-      >
-        <UploadCloudIcon className="h-5 w-5" />
-        Загрузить видео
-      </Link>
+      {/* Reuse existing VideoUploader component with drag-and-drop */}
+      <VideoUploader
+        compact={true}
+        accept=".mp4,.webm,.mov"
+        maxSize={4 * 1024 * 1024 * 1024}  // 4GB
+      />
     </div>
   )
 

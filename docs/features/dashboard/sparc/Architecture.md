@@ -50,7 +50,7 @@ Request
 │ Edge Middleware (middleware.ts)                                  │
 │  1. Read `access_token` cookie                                  │
 │  2. Verify JWT signature with jose (Edge-compatible)            │
-│  3. Set headers: x-user-id, x-user-email, x-user-plan-id       │
+│  3. Set headers: x-user-id, x-user-email, x-user-plan       │
 │  4. If invalid/missing → redirect /login                        │
 └──────────────────────┬──────────────────────────────────────────┘
                        │ headers forwarded
@@ -70,7 +70,7 @@ Request
 │  1. Read x-user-id from headers()                               │
 │  2. Parse searchParams.page (default 1)                         │
 │  3. Execute parallel Prisma queries via Promise.all:             │
-│     - user (minutes, plan, billingPeriodStart)                  │
+│     - user (minutes, plan, subscription.currentPeriodEnd)        │
 │     - videoCount                                                │
 │     - clipCount                                                 │
 │     - videos (take 11, skip offset, with clips._count)          │
@@ -151,7 +151,7 @@ const { payload } = await jwtVerify(accessToken, secret)
 const user = { id: payload.sub, email: payload.email, planId: payload.planId }
 ```
 
-The JWT secret is read from `process.env.JWT_SECRET` and encoded as `TextEncoder().encode(secret)` for jose compatibility. This is the same approach used in `middleware.ts`.
+The JWT secret is read from `process.env.NEXTAUTH_SECRET` and encoded as `TextEncoder().encode(secret)` for jose compatibility. This is the same approach used in `middleware.ts`.
 
 ### DashboardNav: Replace signOut
 
@@ -200,7 +200,7 @@ app/(dashboard)/
 ├── layout.tsx                         # Auth gate — redirect on failure
 ├── dashboard/
 │   ├── page.tsx                       # Main dashboard
-│   ├── loading.tsx                    # Skeleton: 3 stat cards + 10 video rows
+│   ├── loading.tsx                    # Skeleton: 4 stat cards + 5 video rows
 │   ├── error.tsx                      # "Произошла ошибка" + retry button
 │   ├── not-found.tsx                  # "Страница не найдена"
 │   ├── upload/

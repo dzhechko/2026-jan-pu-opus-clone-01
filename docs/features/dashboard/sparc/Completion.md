@@ -20,20 +20,26 @@
 |------|-------------------|
 | `apps/web/app/(dashboard)/layout.tsx` | Replace `getServerSession` with jose JWT decode; unify auth check with middleware pattern |
 | `apps/web/app/(dashboard)/dashboard/page.tsx` | Rewrite with Server Component data fetching, stats grid, video list, pagination |
-| `apps/web/components/dashboard-nav.tsx` | Update to receive user data from layout, fix navigation active states |
+| `apps/web/components/layout/dashboard-nav.tsx` | Update to receive user data from layout, fix navigation active states, replace NextAuth signOut with custom logout |
 
 ## Files to Create
 
 | File | Description |
 |------|-------------|
-| `apps/web/app/(dashboard)/loading.tsx` | Skeleton UI with animate-pulse for dashboard segment |
-| `apps/web/app/(dashboard)/error.tsx` | Error boundary with retry button (`'use client'`) |
-| `apps/web/app/(dashboard)/not-found.tsx` | 404 state for invalid dashboard routes |
-| `apps/web/components/dashboard/stats-grid.tsx` | Stats cards grid: total videos, processing, completed, published |
-| `apps/web/components/dashboard/video-list.tsx` | Video grid/list with thumbnails, titles, status, dates |
-| `apps/web/components/dashboard/status-badge.tsx` | Color-coded status indicator for video states |
-| `apps/web/components/dashboard/empty-state.tsx` | Empty state with illustration and upload CTA |
-| `apps/web/components/dashboard/pagination.tsx` | Page navigation with URL-based state management |
+| `apps/web/app/(dashboard)/dashboard/loading.tsx` | Skeleton UI with animate-pulse (4 stat card skeletons + 5 video row skeletons) |
+| `apps/web/app/(dashboard)/dashboard/error.tsx` | Error boundary with retry button (`'use client'`) |
+| `apps/web/app/(dashboard)/dashboard/not-found.tsx` | 404 state for invalid dashboard routes |
+| `apps/web/components/dashboard/stats-grid.tsx` | Stats cards grid: minutes (progress bar), videos uploaded, clips created, plan/billing |
+| `apps/web/components/dashboard/stat-card.tsx` | Generic stat card (value + label + icon) |
+| `apps/web/components/dashboard/minutes-card.tsx` | Minutes usage card with progress bar |
+| `apps/web/components/dashboard/plan-badge.tsx` | Plan name badge with billing period (subscription.currentPeriodEnd) |
+| `apps/web/components/dashboard/video-list.tsx` | Video list with thumbnails, titles, status, dates |
+| `apps/web/components/dashboard/video-row.tsx` | Single video row component |
+| `apps/web/components/dashboard/video-thumbnail.tsx` | Thumbnail with fallback placeholder |
+| `apps/web/components/dashboard/status-badge.tsx` | Color-coded status indicator (6 Prisma enum values) |
+| `apps/web/components/dashboard/empty-state.tsx` | Empty state with VideoUploader drag-and-drop |
+| `apps/web/components/dashboard/pagination-controls.tsx` | Prev/Next page controls with URL-based state management |
+| `apps/web/components/dashboard/dashboard-skeleton.tsx` | Reusable skeleton cards + rows |
 
 ## Files to Create (Tests)
 
@@ -85,7 +91,7 @@ Verify this index exists in `packages/db/prisma/schema.prisma`. If missing, add 
 - [ ] Auth uses jose JWT decode (no getServerSession)
 - [ ] Dashboard loads with skeleton UI (loading.tsx)
 - [ ] Error boundary catches and displays errors with retry
-- [ ] Stats grid shows video counts by status
+- [ ] Stats grid shows 4 cards: minutes (progress bar), videos uploaded, clips created, plan/billing period
 - [ ] Video list displays with thumbnails, titles, status badges, dates
 - [ ] Pagination works with URL params (?page=N)
 - [ ] Empty state shown for users with 0 videos

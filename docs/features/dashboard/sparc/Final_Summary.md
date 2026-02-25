@@ -8,7 +8,7 @@
 | **Type** | Enhancement (not greenfield) |
 | **Scope** | Fix auth integration, add loading/error states, pagination, improved UI |
 | **Risk** | Low — enhancing existing code, no new infrastructure |
-| **Effort** | Small-Medium — 12 files to create/modify |
+| **Effort** | Small-Medium — 17 files to create/modify |
 | **Dependencies** | Auth feature (completed), video-render feature (completed) |
 
 ## Problem Statement
@@ -29,10 +29,10 @@ The existing dashboard has basic stats and a video list but suffers from:
 | **Auth-unified layout** | Replace `getServerSession` with jose JWT decode from cookies; consistent with middleware auth pattern |
 | **Loading skeletons** | `loading.tsx` with animate-pulse skeleton matching final layout; instant visual feedback |
 | **Error boundaries** | `error.tsx` with user-friendly error message and retry button; graceful degradation |
-| **Paginated video list** | Offset-based pagination with URL params (`?page=N`); 12 videos per page; bookmarkable |
-| **Status badges** | Color-coded badges for all video states: uploading, processing, completed, failed, published |
-| **Empty state** | Inline upload prompt for users with 0 videos; "Загрузить первое видео" CTA |
-| **Plan progress bar** | Visual indicator of plan usage (videos used / plan limit) |
+| **Paginated video list** | Offset-based pagination with URL params (`?page=N`); 10 videos per page; Prev/Next page controls; bookmarkable |
+| **Status badges** | Color-coded badges for all 6 video states: `uploading` (blue), `transcribing` (blue), `analyzing` (purple), `generating_clips` (purple), `completed` (green), `failed` (red) |
+| **Empty state** | Inline upload prompt with drag-and-drop area (reuses `VideoUploader` component); heading "Загрузите первое видео" |
+| **Plan progress bar** | Visual indicator of plan usage (minutes used / minutes limit); green <50%, yellow 50-80%, red >80% |
 
 ### Architecture Decisions
 
@@ -45,19 +45,25 @@ The existing dashboard has basic stats and a video list but suffers from:
 ## File Impact
 
 ### Modified (3 files)
-- `apps/web/app/(dashboard)/layout.tsx` — Auth rewrite
-- `apps/web/app/(dashboard)/dashboard/page.tsx` — Full page rewrite
-- `apps/web/components/dashboard-nav.tsx` — Navigation updates
+- `apps/web/app/(dashboard)/layout.tsx` — Auth rewrite (jose JWT decode, replace getServerSession)
+- `apps/web/app/(dashboard)/dashboard/page.tsx` — Full page rewrite (parallel queries, stats, pagination)
+- `apps/web/components/layout/dashboard-nav.tsx` — Navigation updates (custom logout, remove NextAuth)
 
-### Created (8 files)
-- `apps/web/app/(dashboard)/loading.tsx` — Skeleton UI
-- `apps/web/app/(dashboard)/error.tsx` — Error boundary
-- `apps/web/app/(dashboard)/not-found.tsx` — 404 state
-- `apps/web/components/dashboard/stats-grid.tsx` — Stats cards
-- `apps/web/components/dashboard/video-list.tsx` — Video grid
-- `apps/web/components/dashboard/status-badge.tsx` — Status indicator
-- `apps/web/components/dashboard/empty-state.tsx` — Empty state
-- `apps/web/components/dashboard/pagination.tsx` — Page navigation
+### Created (14 files)
+- `apps/web/app/(dashboard)/dashboard/loading.tsx` — Skeleton UI (4 stat cards + 5 video rows)
+- `apps/web/app/(dashboard)/dashboard/error.tsx` — Error boundary
+- `apps/web/app/(dashboard)/dashboard/not-found.tsx` — 404 state
+- `apps/web/components/dashboard/stats-grid.tsx` — Stats cards (4-card grid)
+- `apps/web/components/dashboard/stat-card.tsx` — Generic stat card
+- `apps/web/components/dashboard/minutes-card.tsx` — Minutes usage with progress bar
+- `apps/web/components/dashboard/plan-badge.tsx` — Plan/billing period card
+- `apps/web/components/dashboard/video-list.tsx` — Video list with pagination
+- `apps/web/components/dashboard/video-row.tsx` — Single video row
+- `apps/web/components/dashboard/video-thumbnail.tsx` — Thumbnail with fallback
+- `apps/web/components/dashboard/status-badge.tsx` — Status indicator (6 values)
+- `apps/web/components/dashboard/empty-state.tsx` — Empty state with VideoUploader
+- `apps/web/components/dashboard/pagination-controls.tsx` — Prev/Next page controls
+- `apps/web/components/dashboard/dashboard-skeleton.tsx` — Reusable skeleton component
 
 ### Tests (4 files)
 - `apps/web/__tests__/dashboard/status-badge.test.tsx`
@@ -87,7 +93,7 @@ The existing dashboard has basic stats and a video list but suffers from:
 ## Success Metrics
 
 - Dashboard loads with visible content in < 1 second (skeleton → content)
-- All 5 video status states display correctly with appropriate colors
+- All 6 video status states display correctly with appropriate colors
 - Pagination handles edge cases gracefully (invalid page, empty results)
 - Zero auth-related errors in dashboard rendering
 - Mobile responsive at all target breakpoints
