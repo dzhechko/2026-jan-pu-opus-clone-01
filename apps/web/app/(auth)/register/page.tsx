@@ -1,10 +1,18 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { z } from 'zod';
+import { registerSchema } from '@/lib/auth/schemas';
 import { trpc } from '@/lib/trpc/client';
+
+type RegisterFormData = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+};
+type FieldErrors = Partial<Record<keyof RegisterFormData, string>>;
 
 function VkIcon({ className }: { className?: string }) {
   return (
@@ -19,31 +27,7 @@ function VkIcon({ className }: { className?: string }) {
   );
 }
 
-const registerSchema = z
-  .object({
-    name: z
-      .string()
-      .min(1, 'Введите имя')
-      .max(100, 'Имя слишком длинное'),
-    email: z
-      .string()
-      .min(1, 'Введите email')
-      .email('Некорректный email'),
-    password: z
-      .string()
-      .min(8, 'Минимум 8 символов')
-      .max(128, 'Пароль слишком длинный'),
-    confirmPassword: z.string().min(1, 'Подтвердите пароль'),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: 'Пароли не совпадают',
-    path: ['confirmPassword'],
-  });
-
-type RegisterFormData = z.infer<typeof registerSchema>;
-type FieldErrors = Partial<Record<keyof RegisterFormData, string>>;
-
-export default function RegisterPage() {
+function RegisterForm() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,7 +41,12 @@ export default function RegisterPage() {
       setRegistered(true);
     },
     onError: (err) => {
-      setServerError(err.message);
+      // Don't expose raw tRPC errors — show generic message
+      if (err.data?.code === 'TOO_MANY_REQUESTS') {
+        setServerError('Слишком много попыток. Подождите и попробуйте снова.');
+      } else {
+        setServerError('Произошла ошибка. Попробуйте снова.');
+      }
     },
   });
 
@@ -66,6 +55,7 @@ export default function RegisterPage() {
     setFieldErrors({});
     setServerError('');
 
+    // Reuse shared schema from lib/auth/schemas
     const result = registerSchema.safeParse({
       name,
       email,
@@ -94,7 +84,7 @@ export default function RegisterPage() {
   }
 
   function handleVkRegister() {
-    signIn('vk', { callbackUrl: '/dashboard' });
+    signIn('vk', { callbackUrl: '/api/auth/session-bridge?callbackUrl=/dashboard' });
   }
 
   if (registered) {
@@ -148,14 +138,7 @@ export default function RegisterPage() {
       <button
         type="button"
         onClick={handleVkRegister}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-medium text-white transition-colors"
-        style={{ backgroundColor: '#0077FF' }}
-        onMouseEnter={(e) => {
-          (e.target as HTMLButtonElement).style.backgroundColor = '#0066DD';
-        }}
-        onMouseLeave={(e) => {
-          (e.target as HTMLButtonElement).style.backgroundColor = '#0077FF';
-        }}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-medium text-white transition-colors bg-[#0077FF] hover:bg-[#0066DD]"
       >
         <VkIcon className="w-5 h-5" />
         Зарегистрироваться через VK
@@ -286,5 +269,13 @@ export default function RegisterPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="text-center text-gray-400">Загрузка...</div>}>
+      <RegisterForm />
+    </Suspense>
   );
 }

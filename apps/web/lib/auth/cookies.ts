@@ -3,8 +3,8 @@ import { ACCESS_TOKEN_MAX_AGE, REFRESH_TOKEN_MAX_AGE, REMEMBER_ME_MAX_AGE } from
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-const ACCESS_TOKEN_COOKIE = 'clipmaker_access_token';
-const REFRESH_TOKEN_COOKIE = 'clipmaker_refresh_token';
+export const ACCESS_TOKEN_COOKIE = 'access_token';
+export const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
 /** Base cookie options: HttpOnly, Secure in production, SameSite=Lax */
 export const AUTH_COOKIE_OPTIONS = {
@@ -35,7 +35,7 @@ export function setAuthCookies(
 
   res.cookies.set(REFRESH_TOKEN_COOKIE, refreshToken, {
     ...AUTH_COOKIE_OPTIONS,
-    path: '/api/auth',
+    path: '/',
     maxAge: rememberMe ? REMEMBER_ME_MAX_AGE : REFRESH_TOKEN_MAX_AGE,
   });
 }
@@ -52,7 +52,7 @@ export function clearAuthCookies(res: NextResponse): void {
 
   res.cookies.set(REFRESH_TOKEN_COOKIE, '', {
     ...AUTH_COOKIE_OPTIONS,
-    path: '/api/auth',
+    path: '/',
     maxAge: 0,
   });
 }

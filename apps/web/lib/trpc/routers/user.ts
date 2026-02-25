@@ -11,9 +11,7 @@ export const userRouter = router({
     .input(registerSchema)
     .mutation(async ({ ctx, input }) => {
       // Rate limit: 3 registrations per hour per IP
-      // In tRPC context we don't have direct IP access, use a fallback key
-      const rateLimitKey = 'trpc-register';
-      await checkRateLimit('auth:register', rateLimitKey, 3, 3600);
+      await checkRateLimit('auth:register', ctx.clientIp, 3, 3600);
 
       const normalizedEmail = input.email.toLowerCase().trim();
 
@@ -21,11 +19,14 @@ export const userRouter = router({
         where: { email: normalizedEmail },
       });
 
+      // Don't leak email existence — return same message regardless.
+      // If user exists, silently skip creation but still return success.
       if (existing) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Email уже зарегистрирован',
-        });
+        // TODO: Send "someone tried to register with your email" notification
+        return {
+          message:
+            'Проверьте почту для подтверждения email.',
+        };
       }
 
       const passwordHash = await hashPassword(input.password);
@@ -52,7 +53,7 @@ export const userRouter = router({
 
       return {
         message:
-          'Регистрация успешна. Проверьте почту для подтверждения email.',
+          'Проверьте почту для подтверждения email.',
       };
     }),
 

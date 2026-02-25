@@ -1,20 +1,23 @@
 import { TRPCError } from '@trpc/server';
 import Redis from 'ioredis';
 
-const redisUrl = process.env.REDIS_URL;
+let redis: Redis | null = null;
 
-if (!redisUrl) {
-  throw new Error('REDIS_URL environment variable is not set');
+try {
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    redis = new Redis(redisUrl, {
+      maxRetriesPerRequest: 3,
+      lazyConnect: true,
+    });
+  }
+} catch {
+  // Redis unavailable at startup — rate limiting disabled (fail open)
 }
 
-export const redis = new Redis(redisUrl, {
-  maxRetriesPerRequest: 3,
-  lazyConnect: true,
-});
-
 /**
- * Check rate limit using Redis INCR + conditional EXPIRE pattern.
- * Throws TRPCError with code TOO_MANY_REQUESTS if limit exceeded.
+ * Check rate limit using Redis INCR + EXPIRE (atomic via pipeline).
+ * Fails open if Redis is unavailable — better to allow traffic than crash the app.
  *
  * @param scope - Rate limit scope (e.g., "auth:login", "upload")
  * @param key - Unique identifier (e.g., user ID, IP address)
@@ -27,22 +30,32 @@ export async function checkRateLimit(
   limit: number,
   windowSeconds: number,
 ): Promise<void> {
+  if (!redis) return; // Fail open
+
   const redisKey = `rate_limit:${scope}:${key}`;
 
-  const current = await redis.incr(redisKey);
+  try {
+    // Use pipeline to make INCR + EXPIRE atomic (sent in single roundtrip)
+    const pipeline = redis.pipeline();
+    pipeline.incr(redisKey);
+    pipeline.expire(redisKey, windowSeconds);
+    const results = await pipeline.exec();
 
-  if (current === 1) {
-    await redis.expire(redisKey, windowSeconds);
-  }
+    const current = (results?.[0]?.[1] as number) ?? 0;
 
-  if (current > limit) {
-    const ttl = await redis.ttl(redisKey);
-    const retryAfter = ttl > 0 ? ttl : windowSeconds;
+    if (current > limit) {
+      const ttl = await redis.ttl(redisKey);
+      const retryAfter = ttl > 0 ? ttl : windowSeconds;
 
-    throw new TRPCError({
-      code: 'TOO_MANY_REQUESTS',
-      message: `Слишком много запросов. Повторите через ${retryAfter} сек.`,
-      cause: { retryAfter },
-    });
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: `Слишком много запросов. Повторите через ${retryAfter} сек.`,
+        cause: { retryAfter },
+      });
+    }
+  } catch (error) {
+    // Re-throw rate limit errors
+    if (error instanceof TRPCError) throw error;
+    // Swallow Redis errors — fail open
   }
 }

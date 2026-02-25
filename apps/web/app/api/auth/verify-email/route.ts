@@ -24,10 +24,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    await prisma.user.update({
+    // Verify user exists AND email matches the token (prevent cross-user verification)
+    const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      data: { emailVerified: true },
+      select: { email: true, emailVerified: true },
     });
+
+    if (!user || user.email !== payload.email) {
+      return NextResponse.redirect(
+        new URL('/login?error=invalid_token', req.nextUrl.origin),
+      );
+    }
+
+    // Skip if already verified (idempotent)
+    if (!user.emailVerified) {
+      await prisma.user.update({
+        where: { id: payload.userId },
+        data: { emailVerified: true },
+      });
+    }
 
     return NextResponse.redirect(
       new URL('/login?verified=true', req.nextUrl.origin),

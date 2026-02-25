@@ -1,9 +1,10 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { loginSchema } from '@/lib/auth/schemas';
 
 function VkIcon({ className }: { className?: string }) {
   return (
@@ -18,7 +19,7 @@ function VkIcon({ className }: { className?: string }) {
   );
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,29 +49,44 @@ export default function LoginPage() {
     setError('');
     setSuccessMessage('');
 
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    // Client-side validation
+    const parsed = loginSchema.safeParse({ email, password, rememberMe });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Некорректные данные');
+      setLoading(false);
+      return;
+    }
 
-    if (result?.error) {
-      if (result.error === 'RATE_LIMIT') {
-        setError('Слишком много попыток. Подождите минуту.');
-      } else if (result.error === 'EMAIL_NOT_VERIFIED') {
-        setError('Подтвердите email. Проверьте почту.');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, rememberMe }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'RATE_LIMIT') {
+          setError('Слишком много попыток. Подождите минуту.');
+        } else if (data.error === 'EMAIL_NOT_VERIFIED') {
+          setError('Подтвердите email. Проверьте почту.');
+        } else {
+          setError('Неверный email или пароль');
+        }
       } else {
-        setError('Неверный email или пароль');
+        window.location.href = '/dashboard';
       }
-    } else if (result?.ok) {
-      window.location.href = '/dashboard';
+    } catch {
+      setError('Ошибка сети. Попробуйте снова.');
     }
 
     setLoading(false);
   }
 
   function handleVkLogin() {
-    signIn('vk', { callbackUrl: '/dashboard' });
+    // VK OAuth via NextAuth, then session-bridge issues custom JWT cookies
+    signIn('vk', { callbackUrl: '/api/auth/session-bridge?callbackUrl=/dashboard' });
   }
 
   return (
@@ -94,14 +110,7 @@ export default function LoginPage() {
       <button
         type="button"
         onClick={handleVkLogin}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-medium text-white transition-colors"
-        style={{ backgroundColor: '#0077FF' }}
-        onMouseEnter={(e) => {
-          (e.target as HTMLButtonElement).style.backgroundColor = '#0066DD';
-        }}
-        onMouseLeave={(e) => {
-          (e.target as HTMLButtonElement).style.backgroundColor = '#0077FF';
-        }}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-medium text-white transition-colors bg-[#0077FF] hover:bg-[#0066DD]"
       >
         <VkIcon className="w-5 h-5" />
         Войти через VK
@@ -196,5 +205,13 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="text-center text-gray-400">Загрузка...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

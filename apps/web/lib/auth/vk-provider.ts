@@ -21,13 +21,15 @@ type VkProviderUser = {
 /**
  * Custom VK OAuth provider for NextAuth.js v4.
  *
- * Uses VK OAuth 2.0 endpoints. Requests only the "profile" scope
+ * Uses VK OAuth 2.0 endpoints. Requests only the "email" scope
  * (video/wall scopes are for publishing, not authentication).
  */
 export function VkProvider(
   options: OAuthUserConfig<VkProfile>,
 ): OAuthConfig<VkProfile> {
   return {
+    // Spread options FIRST so security-critical fields below cannot be overridden
+    ...options,
     id: 'vk',
     name: 'VK',
     type: 'oauth',
@@ -63,6 +65,5 @@ export function VkProvider(
         vkId: String(user.id),
       };
     },
-    ...options,
   };
 }

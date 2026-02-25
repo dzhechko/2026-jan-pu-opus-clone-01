@@ -61,12 +61,16 @@ export function signAccessToken(user: AccessTokenUser): string {
  * Sign a refresh token (7d default, 30d with rememberMe).
  */
 export function signRefreshToken(
-  userId: string,
+  user: { id: string; email: string; planId: string },
   rememberMe?: boolean,
 ): string {
   const expiresIn = rememberMe ? REMEMBER_ME_MAX_AGE : REFRESH_TOKEN_MAX_AGE;
 
-  return jwt.sign({ userId }, getSecret(), { expiresIn });
+  return jwt.sign(
+    { id: user.id, email: user.email, planId: user.planId, type: 'refresh' },
+    getSecret(),
+    { expiresIn },
+  );
 }
 
 /**
