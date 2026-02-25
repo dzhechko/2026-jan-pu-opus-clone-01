@@ -191,8 +191,8 @@ Password reset tokens follow the same pattern: JWT with `{ userId, email, purpos
 
 | Token | Lifetime | Storage | Flags |
 |-------|----------|---------|-------|
-| Access token | 15 minutes | Cookie | HttpOnly, Secure, SameSite=Strict, Path=/ |
-| Refresh token | 7 days | Cookie | HttpOnly, Secure, SameSite=Strict, Path=/api/auth |
+| Access token | 15 minutes | Cookie | HttpOnly, Secure, SameSite=Lax, Path=/ |
+| Refresh token | 7 days (30d with "remember me") | Cookie | HttpOnly, Secure, SameSite=Lax, Path=/api/auth |
 | Email verification | 24 hours | URL query param | Signed with NEXTAUTH_SECRET (HS256) |
 | Password reset | 1 hour | URL query param | Signed with NEXTAUTH_SECRET (HS256) |
 

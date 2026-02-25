@@ -14,7 +14,7 @@
 | E8 | SQL injection in email field | Rejected by Zod validation | Zod `z.string().email()` rejects malformed input before it reaches Prisma; Prisma uses parameterized queries as additional defense |
 | E9 | XSS in name field | Sanitized on display | React auto-escapes JSX output by default; DOMPurify applied for any `dangerouslySetInnerHTML` rendering |
 | E10 | JWT stolen via XSS | Mitigated by HttpOnly cookies | HttpOnly flag prevents JavaScript access to cookies; even if XSS occurs, tokens cannot be exfiltrated |
-| E11 | CSRF attack on auth endpoints | Blocked by SameSite cookie | SameSite=Strict on all auth cookies prevents cross-origin requests from including credentials |
+| E11 | CSRF attack on auth endpoints | Blocked by SameSite cookie + state param | SameSite=Lax on auth cookies blocks cross-origin POST; VK OAuth uses state parameter for CSRF; Lax (not Strict) required for OAuth redirects |
 | E12 | VK API rate limit during OAuth | Retry with backoff | NextAuth handles OAuth token exchange internally; VK rate limits during auth are rare (single request per login) |
 | E13 | User registers with email, then tries VK OAuth with same email | Accounts linked automatically | VK callback checks email match, links `vkId` to existing account, sets `authProvider="both"` |
 | E14 | Password reset for VK-only account (no password set) | Allow setting initial password | Reset flow creates `passwordHash` where it was previously null, updates `authProvider` to `"both"` |
@@ -124,7 +124,7 @@ These tests use real PostgreSQL and Redis containers via testcontainers.
 
 - [x] Passwords hashed with bcrypt (12 rounds, `bcryptjs`)
 - [x] JWT stored in HttpOnly cookies (not localStorage, not sessionStorage)
-- [x] SameSite=Strict on all auth cookies
+- [x] SameSite=Lax on all auth cookies (Lax required for VK OAuth redirects)
 - [x] Secure flag on cookies (HTTPS only)
 - [x] Rate limiting: 5 auth attempts per minute per IP (Redis-backed)
 - [x] Email enumeration prevented: password reset always returns success message
