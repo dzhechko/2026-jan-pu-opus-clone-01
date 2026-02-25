@@ -1,0 +1,19 @@
+{
+  "name": "@clipmaker/queue",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "bullmq": "^5.25.0",
+    "@clipmaker/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
