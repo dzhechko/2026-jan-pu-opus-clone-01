@@ -20,12 +20,13 @@ Feature: Moment Selection
     And each clip has startTime and endTime within the source video duration
     And each clip duration is between 15 and 60 seconds
     And clips are sorted by viralityScore.total descending
+    And overlapping moments (>50% overlap) are deduplicated, keeping higher hookStrength
 
   Scenario: Plan-based clip limits
     Given a free plan user with a completed transcript
     When moment selection finds 8 candidate moments
-    Then only the top 3 clips (by virality score) are saved
-    And the remaining 5 are discarded
+    Then only the top 3 clips (by virality score) are saved to the database
+    And the remaining 5 candidates are not persisted
 
   Scenario: Start plan clip limits
     Given a start plan user with a completed transcript
@@ -38,20 +39,42 @@ Feature: Moment Selection
     Then all 10 clips are saved
 
   Scenario: No good moments found
-    Given a transcript with low-quality content
-    When moment selection returns 0 moments
-    Then the system retries with a higher LLM tier (tier+1)
-    And if still 0 after retry, creates minimum 3 clips from evenly-spaced segments
+    Given a transcript where the LLM returns 0 candidate moments
+    When moment selection completes with empty results
+    Then the system retries with a higher LLM tier (tier+1, max 1 retry)
+    And if still 0 after retry, creates 3 clips from evenly-spaced 30-second segments
 
-  Scenario: Long transcript (>100K tokens)
-    Given a transcript with tokenCount > 100000
+  Scenario: Empty or very short transcript
+    Given a transcript with fullText shorter than 100 words
     When moment selection runs
-    Then tier3 model (GLM-4.6 200K context) is used automatically
+    Then the system skips LLM analysis
+    And creates 1 clip spanning the full video duration (capped at 60 seconds from the middle)
 
-  Scenario: Processing time SLA
-    Given a 60-minute video transcript
-    When the full LLM pipeline runs (selection + scoring + titles + CTAs)
-    Then total processing completes within 180 seconds
+  Scenario: Long transcript (>32K tokens)
+    Given a transcript with tokenCount > 32000
+    When moment selection runs
+    Then LLM Router selects tier3 model (GLM-4.6, 200K context) automatically
+    And if tokenCount > 200000, the transcript is truncated to 200K tokens before sending
+
+  Scenario: LLM returns non-JSON response
+    Given the LLM returns a non-parseable response despite JSON mode
+    When Zod validation fails on the response
+    Then the system retries the same LLM call once
+    And if retry also fails to parse, the job is retried by BullMQ with exponential backoff
+
+  Scenario: LLM cost cap exceeded
+    Given the accumulated LLM cost for a video exceeds 1000 kopecks (10₽)
+    When the next LLM call would be made
+    Then the system aborts processing
+    And the video status is set to "failed"
+    And the error is logged with event "llm_cost_cap_exceeded"
+
+  Scenario: Unauthorized access attempt
+    Given user A owns video "video-123"
+    And user B is authenticated
+    When user B attempts to trigger moment selection on "video-123"
+    Then the API returns HTTP 403 Forbidden
+    And no analysis job is enqueued
 ```
 
 ### US-MV-02: Virality Scoring
@@ -84,6 +107,19 @@ Feature: Virality Scoring
     When I click on the score badge
     Then I see a breakdown showing each dimension with a progress bar
     And I see tips for improvement (e.g., "Усильте хук в первые 3 секунды")
+
+  Scenario: Scoring LLM returns invalid response
+    Given a clip is ready for virality scoring
+    When the LLM returns JSON failing Zod validation
+    Then the system uses a fallback score derived from moment.hookStrength
+    And fallback: total = hookStrength * 4, each dimension = hookStrength, tips = []
+    And the failure is logged at WARN level
+
+  Scenario: Score color boundary values
+    Given clips with viralityScore.total values of 39, 40, 69, 70
+    When displayed on the clips list
+    Then score 39 shows gray badge, 40 shows yellow badge
+    And score 69 shows yellow badge, 70 shows green badge
 ```
 
 ### US-MV-03: Title Generation
@@ -100,14 +136,25 @@ Feature: Title Generation
   Scenario: Title created for each clip
     Given a clip has been created from moment selection
     When title generation completes
-    Then the clip has a non-empty title
-    And the title is under 60 characters
-    And the title is in Russian
+    Then the clip has a non-empty title between 10 and 60 characters
+    And the title is in Russian (enforced by LLM system prompt)
 
   Scenario: Unique titles across clips
     Given a video with 10 generated clips
     When all titles are generated
     Then no two clips have identical titles
+    And if duplicate detected, system appends a distinguishing suffix (e.g., " — Ч.2")
+
+  Scenario: Title LLM returns invalid response
+    Given a clip is ready for title generation
+    When the LLM returns empty or non-parseable response
+    Then the system falls back to the preliminary title from moment selection
+    And the failure is logged at WARN level
+
+  Scenario: Title exceeds character limit
+    Given the LLM returns a title longer than 60 characters
+    When Zod validation fails on the title length
+    Then the system truncates to 57 characters and appends "..."
 ```
 
 ### US-MV-04: CTA Suggestion
@@ -125,9 +172,22 @@ Feature: CTA Suggestion
     Given a clip has been created from moment selection
     When CTA generation completes
     Then the clip has a cta field with text, position, and duration
-    And cta.text is 3-8 words in Russian
+    And cta.text is 3-8 space-separated tokens in Russian
+    And cta.text is at most 50 characters
     And cta.position is "end" or "overlay"
-    And cta.duration is 3-5 seconds
+    And cta.duration is an integer of 3, 4, or 5 seconds
+
+  Scenario: CTA generation LLM failure
+    Given a clip is ready for CTA generation
+    When the LLM call fails or returns invalid response
+    Then the clip receives cta = null (no CTA)
+    And the failure is logged at WARN level
+
+  Scenario: CTA word count out of range
+    Given the LLM returns cta.text with 10 words
+    When Zod validation fails on word count
+    Then the system retries CTA generation once
+    And if retry also fails, cta is set to null
 ```
 
 ### US-MV-05: Processing Status
@@ -144,33 +204,42 @@ Feature: Processing Status
   Scenario: Video in analyzing state
     Given a video has status "analyzing"
     When I view the video detail page
-    Then I see "Анализируем моменты..." with a spinner
-    And the clips section shows a placeholder
+    Then I see "Анализируем моменты..." with a spinner [data-testid="processing-spinner"]
+    And the clips section shows a skeleton placeholder [data-testid="clips-placeholder"]
 
   Scenario: Video in generating_clips state
     Given a video has status "generating_clips"
     When I view the video detail page
     Then I see "Генерируем клипы..." with a spinner
-    And clip cards appear as they become ready
+    And the page polls clip.getByVideo every 5 seconds
+    And clip cards appear within 10 seconds of being created in the database
 
   Scenario: Processing complete
     Given a video has status "completed"
     When I view the video detail page
     Then I see all clips sorted by virality score
-    And the spinner is gone
+    And the spinner is not displayed
+
+  Scenario: Processing failed
+    Given a video has status "failed"
+    When I view the video detail page
+    Then I see "Ошибка обработки" with an error icon
+    And a "Повторить" (retry) button is displayed
+    And no clip cards are shown
 ```
 
 ## Non-Functional Requirements
 
 | ID | Requirement | Target |
 |----|------------|--------|
-| NFR-MV-01 | LLM analysis for 60-min video | < 180s |
-| NFR-MV-02 | LLM cost per video (RU, 60 min) | < 3₽ |
+| NFR-MV-01 | LLM analysis for 60-min video (LLM pipeline only, excluding STT) | < 180s |
+| NFR-MV-02 | LLM cost per video (RU, 60 min) | < 3₽ (alert); abort at 10₽ |
 | NFR-MV-03 | Moment selection retry on failure | Max 2 attempts (tier escalation) |
-| NFR-MV-04 | Parallel scoring concurrency | 3 concurrent LLM calls |
-| NFR-MV-05 | Parallel title/CTA concurrency | 5 concurrent LLM calls |
+| NFR-MV-04 | Peak concurrent LLM calls (3 moments × 3 tasks via pMap + Promise.all) | Up to 9 concurrent |
+| NFR-MV-05 | Parallel title/CTA concurrency (within Promise.all per moment) | 3 per moment |
 | NFR-MV-06 | Clip card render time (10 clips) | < 100ms |
 | NFR-MV-07 | JSON response validation | Zod schema on every LLM response |
+| NFR-MV-08 | Real-time clip status polling interval | Every 5 seconds while generating_clips |
 
 ## Feature Matrix
 

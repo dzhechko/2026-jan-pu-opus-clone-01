@@ -75,9 +75,12 @@ const TitleResponseSchema = z.object({
 });
 
 const CtaResponseSchema = z.object({
-  text: z.string().min(1).max(50),
+  text: z.string().min(1).max(50).refine(
+    (v) => { const words = v.trim().split(/\s+/).length; return words >= 3 && words <= 8; },
+    { message: 'CTA text must be 3-8 space-separated words' }
+  ),
   position: z.enum(['end', 'overlay']),
-  duration: z.number().min(3).max(5),
+  duration: z.number().int().min(3).max(5),
 });
 ```
 
@@ -96,6 +99,16 @@ HANDLER(job):
     CASE 'title_generation': ERROR — title generation runs inside moment_selection
     CASE 'cta_suggestion': ERROR — CTA runs inside moment_selection
     DEFAULT: THROW "Unknown task"
+
+ON_FAILED(job, error):
+  // Called by BullMQ after all retries exhausted
+  videoId = job.data.videoId
+  IF videoId:
+    await prisma.video.update({
+      where: { id: videoId },
+      data: { status: 'failed' },
+    })
+    logger.error({ event: 'llm_analyze_failed', videoId, error: error.message })
 ```
 
 ## Algorithm: handleMomentSelection
@@ -114,6 +127,15 @@ STEPS:
    transcript = await prisma.transcript.findUnique({ where: { videoId } })
    IF !transcript: THROW "Transcript not found"
 
+1b. EARLY EXIT: EMPTY/SHORT TRANSCRIPT
+   IF !transcript.fullText OR transcript.fullText.trim().split(/\s+/).length < 100:
+     // Very short transcript — skip LLM, create 1 clip from middle of video
+     midPoint = Math.floor(videoDurationSeconds / 2)
+     clipStart = Math.max(0, midPoint - 30)
+     clipEnd = Math.min(videoDurationSeconds, clipStart + 60)
+     moments = [{ start: clipStart, end: clipEnd, title: 'Основной момент', reason: 'Auto-generated (short transcript)', hookStrength: 10 }]
+     GOTO step 5  // Skip LLM selection, still score/title/CTA the single clip
+
 2. SELECT MOMENTS
    router = new LLMRouter()
    context = { task: 'moment_selection', strategy, tokenCount, planId }
@@ -126,7 +148,15 @@ STEPS:
    parsed = MomentResponseSchema.safeParse(JSON.parse(response.content))
    IF !parsed.success:
      logger.warn({ event: 'moment_parse_failed', error: parsed.error })
-     THROW "Failed to parse moment selection response"
+     // Retry once with the same context (handles non-JSON despite jsonMode)
+     retryResponse = await router.complete(context, [
+       { role: 'system', content: MOMENT_SELECTION_PROMPT },
+       { role: 'user', content: buildMomentSelectionInput(transcript.fullText, videoDurationSeconds) },
+     ], { jsonMode: true, temperature: 0.5 })
+     totalLlmCostKopecks += retryResponse.costKopecks
+     parsed = MomentResponseSchema.safeParse(JSON.parse(retryResponse.content))
+     IF !parsed.success:
+       THROW "Failed to parse moment selection response after retry"
 
    moments = parsed.data.moments
    totalLlmCostKopecks = response.costKopecks
@@ -145,16 +175,16 @@ STEPS:
        // Fallback: create evenly-spaced clips
        moments = generateFallbackMoments(videoDurationSeconds, 3)
 
-4. VALIDATE MOMENTS
-   // Clamp timestamps to video duration
-   FOR each moment IN moments:
-     moment.start = Math.max(0, moment.start)
-     moment.end = Math.min(videoDurationSeconds, moment.end)
-     IF moment.end - moment.start < 15: moment.end = moment.start + 15
-     IF moment.end - moment.start > 60: moment.end = moment.start + 60
-     IF moment.end > videoDurationSeconds:
-       moment.end = videoDurationSeconds
-       moment.start = Math.max(0, moment.end - 30)
+4. VALIDATE AND DEDUPLICATE MOMENTS
+   moments = validateMoments(moments, videoDurationSeconds)
+   moments = deduplicateMoments(moments)
+
+4b. COST CAP CHECK
+   CONST LLM_COST_CAP_KOPECKS = 1000  // 10₽ safety valve
+   IF totalLlmCostKopecks > LLM_COST_CAP_KOPECKS:
+     logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks: totalLlmCostKopecks })
+     await prisma.video.update({ where: { id: video.id }, data: { status: 'failed' } })
+     THROW "LLM cost cap exceeded"
 
 5. SCORE, TITLE, CTA IN PARALLEL
    segments = transcript.segments as TranscriptSegment[]
@@ -176,6 +206,11 @@ STEPS:
 
      totalLlmCostKopecks += scoreResult.costKopecks + titleResult.costKopecks + ctaResult.costKopecks
 
+     // Cost cap check per iteration
+     IF totalLlmCostKopecks > LLM_COST_CAP_KOPECKS:
+       logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks: totalLlmCostKopecks })
+       THROW "LLM cost cap exceeded"
+
      RETURN {
        moment,
        viralityScore: scoreResult.score,
@@ -185,7 +220,10 @@ STEPS:
      }
    }, { concurrency: 3 })
 
-6. APPLY PLAN LIMITS
+6. DEDUPLICATE TITLES AND APPLY PLAN LIMITS
+   // Ensure title uniqueness across clips
+   enrichedMoments = deduplicateTitles(enrichedMoments)
+
    // Sort by score descending
    enrichedMoments.sort((a, b) => b.viralityScore.total - a.viralityScore.total)
 
@@ -222,6 +260,8 @@ STEPS:
    ])
 
 8. ENQUEUE RENDER JOBS
+   // Capture created clips from transaction result
+   createdClips = transactionResult.slice(0, clipsToCreate.length)
    renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER)
    FOR each clip IN createdClips:
      await renderQueue.add('render', {
@@ -290,6 +330,66 @@ STEPS:
 3. parsed = CtaResponseSchema.safeParse(JSON.parse(response.content))
 4. IF !parsed.success: RETURN { cta: null, costKopecks: response.costKopecks }
 5. RETURN { cta: parsed.data, costKopecks: response.costKopecks }
+```
+
+## Helper: validateMoments
+
+```
+INPUT: moments: MomentCandidate[], videoDurationSeconds: number
+OUTPUT: MomentCandidate[]
+
+STEPS:
+FOR each moment IN moments:
+  moment.start = Math.max(0, moment.start)
+  moment.end = Math.min(videoDurationSeconds, moment.end)
+  IF moment.end - moment.start < 15: moment.end = moment.start + 15
+  IF moment.end - moment.start > 60: moment.end = moment.start + 60
+  IF moment.end > videoDurationSeconds:
+    moment.end = videoDurationSeconds
+    moment.start = Math.max(0, moment.end - 30)
+RETURN moments
+```
+
+## Helper: deduplicateMoments
+
+```
+INPUT: moments: MomentCandidate[]
+OUTPUT: MomentCandidate[]
+
+STEPS:
+1. Sort moments by hookStrength DESC (keep best first)
+2. result = []
+3. FOR each moment IN moments:
+     overlapFound = false
+     FOR each existing IN result:
+       overlapStart = Math.max(moment.start, existing.start)
+       overlapEnd = Math.min(moment.end, existing.end)
+       overlapDuration = Math.max(0, overlapEnd - overlapStart)
+       momentDuration = moment.end - moment.start
+       IF overlapDuration / momentDuration > 0.5:
+         overlapFound = true
+         BREAK
+     IF !overlapFound:
+       result.push(moment)
+4. RETURN result
+```
+
+## Helper: deduplicateTitles
+
+```
+INPUT: enrichedMoments: EnrichedMoment[]
+OUTPUT: EnrichedMoment[]
+
+STEPS:
+1. seenTitles = new Set<string>()
+2. FOR each item IN enrichedMoments:
+     IF seenTitles.has(item.title):
+       suffix = 2
+       WHILE seenTitles.has(`${item.title} — Ч.${suffix}`):
+         suffix++
+       item.title = `${item.title} — Ч.${suffix}`
+     seenTitles.add(item.title)
+3. RETURN enrichedMoments
 ```
 
 ## Helper: generateFallbackMoments

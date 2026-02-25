@@ -125,6 +125,7 @@ Already implements tier selection, model routing, fallback logic, and cost track
 | `apps/web/components/clips/clip-list.tsx` | Update with virality score display |
 | `apps/web/components/clips/clip-card.tsx` | Already exists in clip-list.tsx, extract + enhance |
 | `apps/worker/lib/llm-router.ts` | No changes needed |
+| `docker-compose.yml` | Update worker-llm command if worker file renamed |
 
 ## New Files (Frontend)
 
@@ -160,3 +161,5 @@ Already implements tier selection, model routing, fallback logic, and cost track
 | Scoring fails for one clip | Use hookStrength-derived fallback score |
 | DB transaction fails | BullMQ retry; video stays "analyzing" |
 | Video not in "analyzing" state | Skip job (idempotency guard) |
+| BullMQ retries exhausted | `onFailed` hook sets video.status = 'failed' |
+| LLM cost exceeds 10₽ (1000 kopecks) | Abort job, set video.status = 'failed' |
