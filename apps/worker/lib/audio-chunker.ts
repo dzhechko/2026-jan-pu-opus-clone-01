@@ -23,6 +23,7 @@ export async function splitAudio(
   for (let i = 0; i < numChunks; i++) {
     const chunkPath = path.join(tmpDir, `chunk_${i}.wav`);
     const startSec = i * CHUNK_DURATION;
+    // -c copy is safe for PCM WAV (no keyframes). Input is always 16kHz mono WAV from extractAudio.
     await execFFmpeg(
       ['-i', audioPath, '-ss', String(startSec), '-t', String(CHUNK_DURATION), '-c', 'copy', chunkPath],
       30_000,

@@ -63,7 +63,11 @@ export async function extractAudio(
     args.push('-t', String(maxDurationSeconds));
   }
   args.push(outputPath);
-  await execFFmpeg(args, 120_000); // 120s for long videos
+  // Scale timeout: 120s minimum, +200ms per second of audio for large files
+  const timeoutMs = maxDurationSeconds
+    ? Math.max(120_000, maxDurationSeconds * 200)
+    : 120_000;
+  await execFFmpeg(args, timeoutMs);
 }
 
 export function renderClip(options: RenderOptions): Promise<void> {
@@ -99,8 +103,12 @@ export function renderClip(options: RenderOptions): Promise<void> {
     }, FFMPEG_TIMEOUT);
 
     let stderr = '';
+    const STDERR_MAX = 65536; // 64KB max — only need last ~500 chars for logging
     proc.stderr.on('data', (data: Buffer) => {
       stderr += data.toString();
+      if (stderr.length > STDERR_MAX) {
+        stderr = stderr.slice(-STDERR_MAX);
+      }
     });
 
     proc.on('close', (code) => {

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { trpc } from '@/lib/trpc/client';
 import { SegmentEditor } from './segment-editor';
+import type { TranscriptSegment } from '@clipmaker/types';
 
 type TranscriptViewerProps = {
   videoId: string;
@@ -10,10 +11,29 @@ type TranscriptViewerProps = {
   currentTime?: number;
 };
 
+/** Binary search for the active segment at a given time. O(log n) vs O(n) linear scan. */
+function findActiveSegment(segments: TranscriptSegment[], time: number): number {
+  let lo = 0;
+  let hi = segments.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const seg = segments[mid]!;
+    if (time < seg.start) {
+      hi = mid - 1;
+    } else if (time >= seg.end) {
+      lo = mid + 1;
+    } else {
+      return mid;
+    }
+  }
+  return -1;
+}
+
 export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: TranscriptViewerProps) {
   const [pendingEdits, setPendingEdits] = useState<Map<number, string>>(new Map());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const containerRef = useRef<HTMLDivElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const {
     data,
@@ -27,10 +47,11 @@ export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: Tran
   const updateMutation = trpc.transcript.updateSegments.useMutation();
   const utils = trpc.useUtils();
 
-  // Find active segment index based on currentTime
-  const activeIndex = data?.segments.findIndex(
-    (seg) => currentTime >= seg.start && currentTime < seg.end,
-  ) ?? -1;
+  // Find active segment index via binary search (memoized)
+  const activeIndex = useMemo(
+    () => (data ? findActiveSegment(data.segments, currentTime) : -1),
+    [data, currentTime],
+  );
 
   // Auto-scroll active segment into view
   useEffect(() => {
@@ -40,6 +61,13 @@ export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: Tran
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [activeIndex]);
+
+  // Cleanup save status timers on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   const handleSegmentSave = useCallback((index: number, text: string) => {
     setPendingEdits((prev) => {
@@ -63,10 +91,10 @@ export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: Tran
       setPendingEdits(new Map());
       setSaveStatus('success');
       await utils.transcript.getSegments.invalidate({ videoId });
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
     } catch {
       setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 3000);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
     }
   }, [pendingEdits, videoId, updateMutation, utils]);
 

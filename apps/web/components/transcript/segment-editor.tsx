@@ -1,16 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-
-type Segment = {
-  start: number;
-  end: number;
-  text: string;
-  confidence: number;
-};
+import { useState, useRef, useEffect, memo } from 'react';
+import type { TranscriptSegment } from '@clipmaker/types';
 
 type SegmentEditorProps = {
-  segment: Segment;
+  segment: TranscriptSegment;
   index: number;
   isActive: boolean;
   onSave: (index: number, text: string) => void;
@@ -22,7 +16,7 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function SegmentEditor({ segment, index, isActive, onSave }: SegmentEditorProps) {
+export const SegmentEditor = memo(function SegmentEditor({ segment, index, isActive, onSave }: SegmentEditorProps) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(segment.text);
   const [originalText, setOriginalText] = useState(segment.text);
@@ -125,4 +119,4 @@ export function SegmentEditor({ segment, index, isActive, onSave }: SegmentEdito
       )}
     </div>
   );
-}
+});

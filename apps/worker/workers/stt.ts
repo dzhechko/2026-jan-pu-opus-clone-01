@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import pMap from 'p-map';
-import type { STTJobData } from '@clipmaker/types';
+import type { STTJobData, TranscriptSegment } from '@clipmaker/types';
 import { QUEUE_NAMES } from '@clipmaker/queue';
 import { getRedisConnection } from '@clipmaker/queue/src/queues';
 import { prisma } from '@clipmaker/db';
@@ -17,13 +17,6 @@ import { retryWithBackoff } from '../lib/retry';
 
 const logger = createLogger('worker-stt');
 
-type TranscriptSegment = {
-  start: number;
-  end: number;
-  text: string;
-  confidence: number;
-};
-
 type WhisperSegment = {
   start: number;
   end: number;
@@ -35,13 +28,18 @@ type WhisperSegment = {
 const worker = new Worker<STTJobData>(
   QUEUE_NAMES.STT,
   async (job) => {
-    const { videoId, filePath, strategy, language } = job.data;
+    const { videoId, strategy, language } = job.data;
+    const ALLOWED_LANGUAGES = ['ru', 'en', 'auto'];
     let tmpDir: string | undefined;
 
     logger.info({ event: 'stt_start', videoId, strategy, language });
 
     try {
-      // 1. Validate job
+      // 1. Validate job data
+      if (!ALLOWED_LANGUAGES.includes(language)) {
+        throw new Error(`Unsupported language: ${language}`);
+      }
+
       const video = await prisma.video.findUnique({ where: { id: videoId } });
       if (!video || video.status !== 'transcribing') {
         throw new Error(`Invalid video state: ${video?.status ?? 'not found'}`);
@@ -49,11 +47,11 @@ const worker = new Worker<STTJobData>(
       const user = await prisma.user.findUnique({ where: { id: video.userId } });
       if (!user) throw new Error('User not found');
 
-      // 2. Download video from S3
+      // 2. Download video from S3 (use DB filePath, not job payload)
       tmpDir = await mkdtemp(path.join(os.tmpdir(), 'stt-'));
-      const ext = path.extname(filePath) || '.mp4';
+      const ext = path.extname(video.filePath) || '.mp4';
       const videoPath = path.join(tmpDir, `source${ext}`);
-      await downloadFromS3(filePath, videoPath);
+      await downloadFromS3(video.filePath, videoPath);
 
       // 3. Probe duration
       const durationSeconds = await ffprobeGetDuration(videoPath);
@@ -82,21 +80,18 @@ const worker = new Worker<STTJobData>(
       const chunks = await splitAudio(audioPath, tmpDir, transcribeDuration);
       logger.info({ event: 'stt_chunks', videoId, count: chunks.length });
 
-      // 7. Transcribe chunks in parallel (concurrency 3)
+      // 7. Transcribe chunks in parallel (concurrency 3, max 6 STT calls total with worker concurrency 2)
       const sttConfig = getSTTConfig(strategy);
       const client = createSTTClient(strategy);
-      const allSegments: TranscriptSegment[] = [];
 
-      await pMap(
+      const chunkResults = await pMap(
         chunks,
         async (chunk) => {
-          const file = createReadStream(chunk.path);
-
           const response = await retryWithBackoff(
             async () =>
               client.audio.transcriptions.create({
                 model: sttConfig.model,
-                file,
+                file: createReadStream(chunk.path), // Fresh stream per retry attempt
                 language,
                 response_format: 'verbose_json',
               }),
@@ -111,7 +106,7 @@ const worker = new Worker<STTJobData>(
           );
 
           // Map to TranscriptSegment with chunk offset
-          const mapped: TranscriptSegment[] = rawSegments.map((raw) => ({
+          return rawSegments.map((raw): TranscriptSegment => ({
             start: raw.start + chunk.offsetSeconds,
             end: raw.end + chunk.offsetSeconds,
             text: raw.text.trim(),
@@ -119,18 +114,17 @@ const worker = new Worker<STTJobData>(
               ? Math.min(1, Math.max(0, 1 + raw.avg_logprob))
               : 0.9,
           }));
-
-          allSegments.push(...mapped);
         },
         { concurrency: 3 },
       );
 
-      // Sort by start time (chunks may arrive out of order)
-      allSegments.sort((a, b) => a.start - b.start);
+      // Flatten and sort by start time (chunks may complete out of order)
+      const allSegments = chunkResults.flat().sort((a, b) => a.start - b.start);
 
       // 8. Build full text
       const fullText = allSegments.map((s) => s.text).join(' ');
       const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+      // ~2.5 tokens per word for Russian text (Cyrillic subword tokenization heuristic)
       const tokenCount = Math.ceil(wordCount * 2.5);
 
       // 9. Save transcript + update video + track usage (single transaction)
@@ -144,7 +138,7 @@ const worker = new Worker<STTJobData>(
           data: {
             videoId: video.id,
             language,
-            segments: allSegments as unknown as Parameters<typeof prisma.transcript.create>[0]['data']['segments'],
+            segments: allSegments as unknown as import('@prisma/client').Prisma.JsonArray,
             fullText,
             tokenCount,
             sttModel: sttConfig.model,

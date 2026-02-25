@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { checkRateLimit } from '@/lib/auth/rate-limit';
+import type { TranscriptSegment } from '@clipmaker/types';
 
-type TranscriptSegment = {
-  start: number;
-  end: number;
-  text: string;
-  confidence: number;
-};
+/** Strip HTML tags from user-edited subtitle text (defense-in-depth) */
+function stripHtml(text: string): string {
+  return text.replace(/<[^>]*>/g, '');
+}
 
 export const transcriptRouter = router({
   getSegments: protectedProcedure
@@ -53,6 +53,9 @@ export const transcriptRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      await checkRateLimit('transcript:update', userId, 20, 60);
+
       const video = await ctx.prisma.video.findFirst({
         where: { id: input.videoId, userId },
       });
@@ -76,11 +79,12 @@ export const transcriptRouter = router({
             message: `Индекс сегмента вне диапазона: ${edit.index}`,
           });
         }
-        segments[edit.index]!.text = edit.text.trim();
+        segments[edit.index]!.text = stripHtml(edit.text.trim());
       }
 
       const fullText = segments.map((s) => s.text).join(' ');
       const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+      // ~2.5 tokens per word for Russian text (heuristic for LLM routing, not billing)
       const tokenCount = Math.ceil(wordCount * 2.5);
 
       await ctx.prisma.transcript.update({

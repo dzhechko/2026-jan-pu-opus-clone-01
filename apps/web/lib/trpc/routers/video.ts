@@ -14,7 +14,7 @@ import {
   deleteObject,
   validateMagicBytes,
 } from '@clipmaker/s3';
-import { createQueue, QUEUE_NAMES } from '@clipmaker/queue';
+import { createQueue, QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
 const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
@@ -257,7 +257,7 @@ export const videoRouter = router({
         filePath: video.filePath,
         strategy,
         language: 'ru',
-      });
+      }, DEFAULT_JOB_OPTIONS);
 
       return { status: 'transcribing' as const };
     }),
