@@ -13,6 +13,7 @@
     "@clipmaker/config": "*",
     "@clipmaker/db": "*",
     "@clipmaker/queue": "*",
+    "@clipmaker/s3": "*",
     "@clipmaker/types": "*",
     "@tanstack/react-query": "^5.62.0",
     "@trpc/client": "^11.0.0",
