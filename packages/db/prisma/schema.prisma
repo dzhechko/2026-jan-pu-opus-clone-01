@@ -1,0 +1,246 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  email
+  vk
+}
+
+enum LLMProviderPreference {
+  ru
+  global
+}
+
+enum VideoStatus {
+  uploading
+  downloading
+  transcribing
+  analyzing
+  generating_clips
+  completed
+  failed
+}
+
+enum VideoSourceType {
+  upload
+  url
+}
+
+enum ClipStatus {
+  pending
+  rendering
+  ready
+  published
+  failed
+}
+
+enum ClipFormat {
+  portrait  // 9:16
+  square    // 1:1
+  landscape // 16:9
+}
+
+enum PublicationPlatform {
+  vk
+  rutube
+  dzen
+  telegram
+}
+
+enum PublicationStatus {
+  scheduled
+  publishing
+  published
+  failed
+}
+
+enum SubscriptionStatus {
+  active
+  cancelled
+  past_due
+  expired
+}
+
+enum PaymentMethod {
+  card
+  sbp
+}
+
+enum PlanId {
+  free
+  start
+  pro
+  business
+}
+
+model User {
+  id                      String                @id @default(uuid()) @db.Uuid
+  email                   String                @unique
+  name                    String?
+  avatarUrl               String?               @map("avatar_url")
+  passwordHash            String?               @map("password_hash")
+  emailVerified           Boolean               @default(false) @map("email_verified")
+  authProvider            AuthProvider           @default(email) @map("auth_provider")
+  vkId                    String?               @unique @map("vk_id")
+  planId                  PlanId                 @default(free) @map("plan_id")
+  minutesUsed             Int                    @default(0) @map("minutes_used")
+  minutesLimit            Int                    @default(30) @map("minutes_limit")
+  billingPeriodStart      DateTime               @default(now()) @map("billing_period_start")
+  llmProviderPreference   LLMProviderPreference  @default(ru) @map("llm_provider_preference")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+
+  videos              Video[]
+  clips               Clip[]
+  subscription        Subscription?
+  usageRecords        UsageRecord[]
+  platformConnections PlatformConnection[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Video {
+  id                    String        @id @default(uuid()) @db.Uuid
+  userId                String        @map("user_id") @db.Uuid
+  title                 String
+  sourceType            VideoSourceType @map("source_type")
+  sourceUrl             String?       @map("source_url")
+  filePath              String        @map("file_path")
+  durationSeconds       Int?          @map("duration_seconds")
+  status                VideoStatus   @default(uploading)
+  llmProviderUsed       LLMProviderPreference? @map("llm_provider_used")
+  processingCostKopecks Int           @default(0) @map("processing_cost_kopecks")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transcript Transcript?
+  clips      Clip[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("videos")
+}
+
+model Transcript {
+  id          String @id @default(uuid()) @db.Uuid
+  videoId     String @unique @map("video_id") @db.Uuid
+  language    String @default("ru")
+  segments    Json   @default("[]")
+  fullText    String @map("full_text") @db.Text
+  tokenCount  Int    @default(0) @map("token_count")
+  sttModel    String @map("stt_model")
+  sttProvider String @map("stt_provider")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@map("transcripts")
+}
+
+model Clip {
+  id               String     @id @default(uuid()) @db.Uuid
+  videoId          String     @map("video_id") @db.Uuid
+  userId           String     @map("user_id") @db.Uuid
+  title            String
+  description      String?    @db.Text
+  startTime        Float      @map("start_time")
+  endTime          Float      @map("end_time")
+  duration         Float
+  viralityScore    Json       @map("virality_score")
+  format           ClipFormat @default(portrait)
+  subtitleSegments Json       @default("[]") @map("subtitle_segments")
+  cta              Json?
+  filePath         String?    @map("file_path")
+  thumbnailPath    String?    @map("thumbnail_path")
+  status           ClipStatus @default(pending)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  video        Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publications Publication[]
+
+  @@index([videoId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("clips")
+}
+
+model Publication {
+  id             String              @id @default(uuid()) @db.Uuid
+  clipId         String              @map("clip_id") @db.Uuid
+  platform       PublicationPlatform
+  status         PublicationStatus   @default(scheduled)
+  scheduledAt    DateTime?           @map("scheduled_at")
+  publishedAt    DateTime?           @map("published_at")
+  platformPostId String?             @map("platform_post_id")
+  platformUrl    String?             @map("platform_url")
+  views          Int                 @default(0)
+  likes          Int                 @default(0)
+  shares         Int                 @default(0)
+  lastStatsSync  DateTime?           @map("last_stats_sync")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@index([clipId])
+  @@map("publications")
+}
+
+model Subscription {
+  id                    String             @id @default(uuid()) @db.Uuid
+  userId                String             @unique @map("user_id") @db.Uuid
+  planId                PlanId             @map("plan_id")
+  status                SubscriptionStatus @default(active)
+  paymentProvider       String             @default("yookassa") @map("payment_provider")
+  paymentMethod         PaymentMethod      @map("payment_method")
+  externalSubscriptionId String?           @map("external_subscription_id")
+  currentPeriodStart    DateTime           @map("current_period_start")
+  currentPeriodEnd      DateTime           @map("current_period_end")
+  cancelAtPeriodEnd     Boolean            @default(false) @map("cancel_at_period_end")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model UsageRecord {
+  id               String                @id @default(uuid()) @db.Uuid
+  userId           String                @map("user_id") @db.Uuid
+  videoId          String                @map("video_id") @db.Uuid
+  minutesConsumed  Float                 @map("minutes_consumed")
+  llmCostKopecks   Int                   @default(0) @map("llm_cost_kopecks")
+  sttCostKopecks   Int                   @default(0) @map("stt_cost_kopecks")
+  gpuCostKopecks   Int                   @default(0) @map("gpu_cost_kopecks")
+  providerStrategy LLMProviderPreference @map("provider_strategy")
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("usage_records")
+}
+
+model PlatformConnection {
+  id                    String              @id @default(uuid()) @db.Uuid
+  userId                String              @map("user_id") @db.Uuid
+  platform              PublicationPlatform
+  accessTokenEncrypted  String              @map("access_token_encrypted")
+  refreshTokenEncrypted String?             @map("refresh_token_encrypted")
+  expiresAt             DateTime?           @map("expires_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@map("platform_connections")
+}
