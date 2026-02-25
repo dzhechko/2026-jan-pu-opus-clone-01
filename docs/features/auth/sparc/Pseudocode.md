@@ -136,7 +136,16 @@ Note: Refresh tokens are JWT-based (stateless) in MVP. No server-side revocation
 ## 5. VK OAuth Flow
 
 ```
-function vkOAuthCallback(code: string, state: string):
+function vkOAuthCallback(code: string, state: string, errorParam?: string):
+  // Check if user cancelled VK OAuth (VK sends error=access_denied)
+  if errorParam === "access_denied":
+    redirect to /login?error=vk_cancelled
+    // Display: "VK авторизация отменена"
+    return
+
+  // Rate limit VK OAuth attempts
+  checkRateLimit("vk_oauth", ip, limit=10, window=60) → throw 429 if exceeded
+
   // Validate state to prevent CSRF
   if !isValidOAuthState(state) → throw BAD_REQUEST
 
