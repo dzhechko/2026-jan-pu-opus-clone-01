@@ -68,7 +68,7 @@ Browser                    API Server              Cloud.ru S3
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Cloud.ru S3 API differences | High | Test all operations against real endpoint; use `forcePathStyle: true` |
-| Large file upload failure | Medium | Multipart with resume; 24h expiry for presigned URLs |
+| Large file upload failure | Medium | Multipart with resume; 1h expiry for presigned URLs |
 | CORS misconfiguration | Medium | Test in dev with localhost origin; document CORS setup |
 | Presigned URL abuse | Low | Short expiry (1h upload, 1h download), Content-Length limit in presigned URL |
 | S3 credentials leak | High | Server-side only env vars, never expose to client |

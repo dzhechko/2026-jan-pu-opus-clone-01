@@ -50,7 +50,7 @@ packages/s3/
 │   ├── presign.ts        # Presigned URL generation (upload + download)
 │   ├── multipart.ts      # Multipart upload helpers
 │   ├── operations.ts     # headObject, getObjectBytes, deleteObject
-│   ├── paths.ts          # S3 key builders (videoSource, clip, thumbnail)
+│   ├── paths.ts          # S3 key builders (videoSourcePath, clipPath, thumbnailPath)
 │   └── validation.ts     # Magic bytes validation
 ├── package.json
 └── tsconfig.json
@@ -131,7 +131,7 @@ Required on the S3 bucket for browser direct upload:
 {
   "CORSRules": [{
     "AllowedOrigins": ["https://clipmaker.ru", "http://localhost:3000"],
-    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["ETag"],
     "MaxAgeSeconds": 3600
@@ -163,7 +163,7 @@ await db.clip.update({ where: { id: clipId }, data: { filePath: clipKey, status:
 ### With Publish Worker
 Publish worker reads clip from S3 before uploading to platform:
 ```typescript
-const clipData = await getObject(clip.filePath);
+const clipData = await getObjectBytes(clip.filePath);
 await platformProvider.publish(clipData, clip.title);
 ```
 

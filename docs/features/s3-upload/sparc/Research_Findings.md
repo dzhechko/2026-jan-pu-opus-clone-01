@@ -54,7 +54,7 @@ const s3 = new S3Client({
 ### Presigned Multipart Upload (large files)
 - Required for files >5GB, recommended >100MB
 - Server initiates multipart, generates presigned URL per part
-- Browser uploads parts in parallel (3-5 concurrent)
+- Browser uploads parts in parallel (3 concurrent)
 - Server completes multipart after all parts uploaded
 - More complex but enables: progress per part, resume on failure, parallel uploads
 

@@ -40,7 +40,7 @@
 - [ ] Download endpoint returns presigned GET URL (1-hour expiry)
 - [ ] Only clip owner can generate download URL
 - [ ] Clip must be in `ready` status to download
-- [ ] Redirect (302) to presigned URL for browser download
+- [ ] Returns presigned GET URL as JSON `{ downloadUrl }` (client handles via `window.location.href`)
 
 ### US-S3-04: S3 Client Package
 **As a** developer,
@@ -52,7 +52,7 @@
 - [ ] Exports helper functions: `generateUploadUrl`, `generateDownloadUrl`, `getObjectHead`, `getObjectBytes`, `putObject`, `deleteObject`
 - [ ] Exports path builders: `videoSourcePath`, `clipPath`, `thumbnailPath`
 - [ ] Configuration via env vars: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_REGION`
-- [ ] Works in both Next.js API routes and Node.js workers
+- [ ] Works in both Next.js API routes (Edge/Node runtime) and standalone Node.js workers (BullMQ)
 
 ## Feature Matrix
 
