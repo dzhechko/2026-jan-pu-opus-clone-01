@@ -1,0 +1,26 @@
+{
+  "name": "@clipmaker/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch workers/index.ts",
+    "start": "node dist/workers/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint workers/ lib/"
+  },
+  "dependencies": {
+    "bullmq": "^5.25.0",
+    "openai": "^4.73.0",
+    "pino": "^9.5.0",
+    "@clipmaker/db": "*",
+    "@clipmaker/types": "*",
+    "@clipmaker/queue": "*",
+    "@clipmaker/config": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^20.11.0"
+  }
+}
