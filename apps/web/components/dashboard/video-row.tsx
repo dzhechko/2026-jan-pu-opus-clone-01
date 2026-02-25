@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { StatusBadge } from './status-badge';
 import { VideoThumbnail } from './video-thumbnail';
-import { formatDuration, formatRelativeDate } from '@/lib/utils/format';
+import { formatDuration, formatRelativeDate, pluralizeClips } from '@/lib/utils/format';
 
 type VideoRowProps = {
   video: {
@@ -25,7 +25,7 @@ export function VideoRow({ video }: VideoRowProps) {
       <div className="flex-1 min-w-0">
         <div className="font-medium truncate">{video.title}</div>
         <div className="text-sm text-gray-500">
-          {video.durationSeconds ? formatDuration(video.durationSeconds) : '—'} &middot; {video._count.clips} клипов
+          {video.durationSeconds ? formatDuration(video.durationSeconds) : '—'} &middot; {pluralizeClips(video._count.clips)}
         </div>
       </div>
 

@@ -6,9 +6,19 @@ type MinutesCardProps = {
 };
 
 export function MinutesCard({ minutesUsed, minutesLimit }: MinutesCardProps) {
-  const percentage = minutesLimit > 0
-    ? Math.round((minutesUsed / minutesLimit) * 100)
-    : 0;
+  if (minutesLimit === 0) {
+    return (
+      <section className="rounded-xl border bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <ClockIcon className="h-5 w-5 text-gray-400" />
+          <span className="text-sm text-gray-500">Минуты обработки</span>
+        </div>
+        <div className="text-2xl font-bold">Лимит не установлен</div>
+      </section>
+    );
+  }
+
+  const percentage = Math.round((minutesUsed / minutesLimit) * 100);
 
   const progressColor =
     percentage > 80 ? 'bg-red-500'
@@ -16,7 +26,7 @@ export function MinutesCard({ minutesUsed, minutesLimit }: MinutesCardProps) {
     : 'bg-green-500';
 
   return (
-    <div className="rounded-xl border bg-white p-6 shadow-sm">
+    <section className="rounded-xl border bg-white p-6 shadow-sm">
       <div className="flex items-center gap-3 mb-4">
         <ClockIcon className="h-5 w-5 text-gray-400" />
         <span className="text-sm text-gray-500">Минуты обработки</span>
@@ -43,6 +53,6 @@ export function MinutesCard({ minutesUsed, minutesLimit }: MinutesCardProps) {
       <div className="mt-1 text-xs text-gray-500 text-right">
         {percentage}% использовано
       </div>
-    </div>
+    </section>
   );
 }

@@ -14,11 +14,10 @@ type Video = {
 type VideoListProps = {
   videos: Video[];
   currentPage: number;
-  totalPages: number;
   hasMore: boolean;
 };
 
-export function VideoList({ videos, currentPage, totalPages, hasMore }: VideoListProps) {
+export function VideoList({ videos, currentPage, hasMore }: VideoListProps) {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Ваши видео</h2>
@@ -29,10 +28,9 @@ export function VideoList({ videos, currentPage, totalPages, hasMore }: VideoLis
         ))}
       </div>
 
-      <Suspense>
+      <Suspense fallback={<div className="h-10" />}>
         <PaginationControls
           currentPage={currentPage}
-          totalPages={totalPages}
           hasMore={hasMore}
         />
       </Suspense>

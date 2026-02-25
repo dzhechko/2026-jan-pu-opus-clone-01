@@ -162,9 +162,13 @@ function redirectToLogin(request: NextRequest): NextResponse {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // 1. Public routes — pass through immediately.
+  // 1. Public routes — pass through but strip any client-injected x-user-* headers.
   if (isPublicPath(pathname)) {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.delete('x-user-id');
+    requestHeaders.delete('x-user-email');
+    requestHeaders.delete('x-user-plan');
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;

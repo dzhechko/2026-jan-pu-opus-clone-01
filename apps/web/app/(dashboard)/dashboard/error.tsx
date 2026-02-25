@@ -24,7 +24,7 @@ export default function DashboardError({ error, reset }: DashboardErrorProps) {
         Если проблема сохраняется, обратитесь в поддержку.
       </p>
 
-      {error.digest && (
+      {process.env.NODE_ENV !== 'production' && error.digest && (
         <p className="text-xs text-gray-500">
           Код ошибки: {error.digest}
         </p>

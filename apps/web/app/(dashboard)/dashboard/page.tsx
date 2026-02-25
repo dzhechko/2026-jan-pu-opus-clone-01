@@ -1,10 +1,12 @@
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { prisma } from '@clipmaker/db';
 import { StatsGrid } from '@/components/dashboard/stats-grid';
 import { VideoList } from '@/components/dashboard/video-list';
 import { EmptyState } from '@/components/dashboard/empty-state';
 
 const PAGE_SIZE = 10;
+const MAX_PAGE = 10000;
 
 export default async function DashboardPage({
   searchParams,
@@ -14,14 +16,16 @@ export default async function DashboardPage({
   const headerStore = await headers();
   const userId = headerStore.get('x-user-id');
 
-  if (!userId) return null;
+  if (!userId) {
+    redirect('/login');
+  }
 
   const rawPage = (await searchParams).page;
-  const page = Math.max(1, parseInt(rawPage ?? '') || 1);
+  const page = Math.min(Math.max(1, parseInt(rawPage ?? '') || 1), MAX_PAGE);
   const offset = (page - 1) * PAGE_SIZE;
 
   const [user, videoCount, clipCount, videos] = await Promise.all([
-    prisma.user.findUniqueOrThrow({
+    prisma.user.findUnique({
       where: { id: userId },
       select: {
         minutesUsed: true,
@@ -55,9 +59,13 @@ export default async function DashboardPage({
     }),
   ]);
 
+  if (!user) {
+    redirect('/login');
+  }
+
   const hasMore = videos.length > PAGE_SIZE;
   const displayVideos = videos.slice(0, PAGE_SIZE);
-  const totalPages = Math.max(1, Math.ceil(videoCount / PAGE_SIZE));
+  const isEmpty = videoCount === 0;
 
   return (
     <div className="space-y-8">
@@ -69,13 +77,12 @@ export default async function DashboardPage({
         clipCount={clipCount}
       />
 
-      {videoCount === 0 ? (
+      {isEmpty ? (
         <EmptyState />
       ) : (
         <VideoList
           videos={displayVideos}
           currentPage={page}
-          totalPages={totalPages}
           hasMore={hasMore}
         />
       )}

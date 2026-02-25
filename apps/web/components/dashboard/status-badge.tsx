@@ -1,11 +1,17 @@
+import type { VideoStatus } from '@clipmaker/types';
+
 type StatusConfig = {
   label: string;
   className: string;
 };
 
-const STATUS_MAP: Record<string, StatusConfig> = {
+const STATUS_MAP: Record<VideoStatus, StatusConfig> = {
   uploading: {
     label: 'Загрузка',
+    className: 'bg-blue-100 text-blue-700',
+  },
+  downloading: {
+    label: 'Скачивание',
     className: 'bg-blue-100 text-blue-700',
   },
   transcribing: {
@@ -30,13 +36,8 @@ const STATUS_MAP: Record<string, StatusConfig> = {
   },
 };
 
-const FALLBACK_STATUS: StatusConfig = {
-  label: 'Неизвестно',
-  className: 'bg-gray-100 text-gray-700',
-};
-
 export function StatusBadge({ status }: { status: string }) {
-  const config = STATUS_MAP[status] ?? FALLBACK_STATUS;
+  const config = STATUS_MAP[status as VideoStatus] ?? { label: 'Неизвестно', className: 'bg-gray-100 text-gray-700' };
 
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${config.className}`}>

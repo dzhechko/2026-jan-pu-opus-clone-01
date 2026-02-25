@@ -1,6 +1,5 @@
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { jwtVerify } from 'jose';
 import { DashboardNav } from '@/components/layout/dashboard-nav';
 
 type DashboardUser = {
@@ -9,27 +8,21 @@ type DashboardUser = {
   planId: string;
 };
 
-const JWT_SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
-
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get('access_token')?.value;
+  const headerStore = await headers();
+  const userId = headerStore.get('x-user-id');
+  const email = headerStore.get('x-user-email');
+  const planId = headerStore.get('x-user-plan');
 
-  if (!accessToken) {
+  if (!userId) {
     redirect('/login');
   }
 
-  let user: DashboardUser;
-  try {
-    const { payload } = await jwtVerify(accessToken, JWT_SECRET);
-    user = {
-      id: payload.sub as string,
-      email: payload.email as string,
-      planId: payload.planId as string,
-    };
-  } catch {
-    redirect('/login');
-  }
+  const user: DashboardUser = {
+    id: userId,
+    email: email ?? '',
+    planId: planId ?? 'free',
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">

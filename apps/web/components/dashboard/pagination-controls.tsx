@@ -5,11 +5,10 @@ import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 
 type PaginationControlsProps = {
   currentPage: number;
-  totalPages: number;
   hasMore: boolean;
 };
 
-export function PaginationControls({ currentPage, totalPages, hasMore }: PaginationControlsProps) {
+export function PaginationControls({ currentPage, hasMore }: PaginationControlsProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -27,17 +26,20 @@ export function PaginationControls({ currentPage, totalPages, hasMore }: Paginat
 
   const hasPrev = currentPage > 1;
 
+  if (!hasPrev && !hasMore) return null;
+
   return (
-    <div className="flex items-center justify-between">
+    <nav className="flex items-center justify-between" aria-label="Навигация по страницам">
       <div className="text-sm text-gray-500">
-        Страница {currentPage} из {totalPages}
+        Страница {currentPage}
       </div>
 
       <div className="flex gap-2">
         <button
           onClick={() => navigateToPage(currentPage - 1)}
           disabled={!hasPrev}
-          className="inline-flex items-center gap-1 px-3 py-2 text-sm rounded-lg border hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          className="inline-flex items-center gap-1 px-3 py-2 text-sm rounded-lg border hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Предыдущая страница"
         >
           <ChevronLeftIcon className="h-4 w-4" />
           Назад
@@ -46,12 +48,13 @@ export function PaginationControls({ currentPage, totalPages, hasMore }: Paginat
         <button
           onClick={() => navigateToPage(currentPage + 1)}
           disabled={!hasMore}
-          className="inline-flex items-center gap-1 px-3 py-2 text-sm rounded-lg border hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          className="inline-flex items-center gap-1 px-3 py-2 text-sm rounded-lg border hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Следующая страница"
         >
           Вперёд
           <ChevronRightIcon className="h-4 w-4" />
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
