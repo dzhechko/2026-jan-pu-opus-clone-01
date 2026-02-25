@@ -81,8 +81,7 @@ STEPS:
      '-vn', '-ac', '1', '-ar', '16000', '-acodec', 'pcm_s16le',
      '-t', String(transcribeDuration),
      audioPath
-   ])
-   // Timeout: 30s. WAV size ≈ 1.92 MB/min
+   ], 120_000)  // 120s timeout for long videos. WAV size ≈ 1.92 MB/min
 
 6. CHUNK AUDIO (if needed):
    CHUNK_DURATION = 600  // 10 minutes = ~19.2MB per chunk
@@ -106,35 +105,43 @@ STEPS:
 
 7. TRANSCRIBE CHUNKS (parallel, concurrency 3):
    sttConfig = LLM_PROVIDERS[job.strategy].stt
-   client = getOpenAIClient(job.strategy, sttConfig.provider)
+   // Use LLMRouter's OpenAI client factory (expose as public method or extract helper)
+   // LLMRouter.getClient() is private — extract a standalone createSTTClient() helper:
+   //   createSTTClient(strategy, provider) → returns OpenAI instance configured for that provider
+   // This mirrors LLMRouter.getClient() logic but is usable outside the class.
+   client = createSTTClient(job.strategy, sttConfig.provider)
 
    allSegments: TranscriptSegment[] = []
 
    await pMap(chunks, async (chunk) => {
      file = fs.createReadStream(chunk.path)
-     response = await client.audio.transcriptions.create({
-       model: sttConfig.model,
-       file: file,
-       language: job.language,
-       response_format: 'verbose_json',
-     })
 
-     // Extract segments with offset
-     segments = (response.segments || []).map(seg => ({
-       start: seg.start + chunk.offsetSeconds,
-       end: seg.end + chunk.offsetSeconds,
-       text: seg.text.trim(),
-       confidence: seg.avg_logprob
-         ? Math.min(1, Math.max(0, 1 + seg.avg_logprob))  // logprob is negative
+     // Retry wrapper for transient errors (per-chunk, not per-job)
+     response = await retryWithBackoff(async () => {
+       return client.audio.transcriptions.create({
+         model: sttConfig.model,
+         file: file,
+         language: job.language,
+         response_format: 'verbose_json',
+       })
+     }, { maxRetries: 2, baseDelayMs: 2000 })  // 2s, 8s exponential
+
+     // Filter silence BEFORE mapping (need raw Whisper segment fields)
+     rawSegments = (response.segments || []).filter(raw =>
+       raw.text.trim().length > 0 && (raw.no_speech_prob ?? 0) < 0.8
+     )
+
+     // Map to TranscriptSegment with chunk offset
+     mapped = rawSegments.map(raw => ({
+       start: raw.start + chunk.offsetSeconds,
+       end: raw.end + chunk.offsetSeconds,
+       text: raw.text.trim(),
+       confidence: raw.avg_logprob
+         ? Math.min(1, Math.max(0, 1 + raw.avg_logprob))  // logprob is negative
          : 0.9  // default if not provided
      }))
 
-     // Filter out silence/noise
-     segments = segments.filter(s =>
-       s.text.length > 0 && (seg.no_speech_prob ?? 0) < 0.8
-     )
-
-     allSegments.push(...segments)
+     allSegments.push(...mapped)
    }, { concurrency: 3 })
 
    // Sort by start time (chunks may arrive out of order)
@@ -196,12 +203,15 @@ STEPS:
     // For now, the pipeline stops here. The LLM analyze worker will be wired in the next feature.
 
 ERROR HANDLING:
-  - Whisper API error (transient): retry up to 2 times, exponential backoff (2s, 8s)
+  - Whisper API error (transient 5xx/timeout): per-chunk retry up to 2 times,
+    exponential backoff (2s, 8s) via retryWithBackoff() wrapper in step 7
   - Whisper API error (4xx): fail immediately, mark video as "failed"
   - FFmpeg error: fail immediately, mark video as "failed"
-  - S3 download error: fail immediately, mark video as "failed"
-  - All errors: cleanup tmpDir in finally block
+  - S3 download error: retry up to 2 times (transient), then fail and mark video as "failed"
+  - All errors: cleanup tmpDir in finally block (log cleanup errors at WARN level)
   - All errors: log with { videoId, step, error }
+  - BullMQ job-level retry (attempts: 3, backoff: exponential 5s) as safety net for
+    catastrophic failures (worker crash, OOM). Per-chunk retry handles transient API errors.
 ```
 
 ## Algorithm: FFmpeg Probe Duration
@@ -211,14 +221,15 @@ INPUT: filePath: string (local path)
 OUTPUT: durationSeconds: number
 
 STEPS:
-1. result = execSync('ffprobe -v quiet -print_format json -show_format ' + shellescape(filePath))
-2. parsed = JSON.parse(result)
+1. result = await execFile('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
+     { timeout: 10_000 })
+2. parsed = JSON.parse(result.stdout)
 3. duration = parseFloat(parsed.format.duration)
 4. IF isNaN(duration) OR duration <= 0:
      THROW "Could not determine video duration"
 5. RETURN duration
 
-SECURITY: Use execFile (not exec) to prevent shell injection. Pass filePath as argument, not in string.
+SECURITY: Uses execFile with array args (NOT exec with string concatenation). No shell injection possible.
 ```
 
 ## Algorithm: S3 Download to File
@@ -322,14 +333,62 @@ Video.status flow for STT:
 ## Helper: execFFmpeg
 
 ```
-INPUT: args: string[]
+INPUT: args: string[], timeoutMs: number = 30_000
 OUTPUT: void
 
 STEPS:
-1. result = await execFile('ffmpeg', args, { timeout: 30_000 })
+1. result = await execFile('ffmpeg', args, { timeout: timeoutMs })
 2. IF result.exitCode !== 0:
      THROW new Error(`FFmpeg failed: ${result.stderr}`)
 
-SECURITY: Use execFile (array args), NOT exec (string). Prevents shell injection.
-TIMEOUT: 30 seconds default. Override for extraction of very long files.
+SECURITY: Uses execFile (array args), NOT exec (string). Prevents shell injection.
+TIMEOUT: 30s default. Audio extraction of long files should pass timeoutMs = 120_000.
+```
+
+## Helper: createSTTClient
+
+```
+INPUT: strategy: 'ru' | 'global', provider: string
+OUTPUT: OpenAI client instance
+
+STEPS:
+1. IF strategy === 'ru':
+     RETURN new OpenAI({ apiKey: env.CLOUDRU_API_KEY, baseURL: LLM_PROVIDERS.ru.baseUrl })
+2. IF provider === 'openai':
+     RETURN new OpenAI({ apiKey: env.OPENAI_API_KEY })
+3. THROW "Unsupported STT provider"
+
+NOTE: Extracted from LLMRouter.getClient() to avoid coupling STT worker to the full LLM Router class.
+      Accepts ReadStream for file parameter (OpenAI SDK Uploadable type).
+```
+
+## Helper: retryWithBackoff
+
+```
+INPUT: fn: () => Promise<T>, opts: { maxRetries: number, baseDelayMs: number }
+OUTPUT: T (result of fn)
+
+STEPS:
+1. FOR attempt = 0 TO opts.maxRetries:
+     TRY:
+       RETURN await fn()
+     CATCH error:
+       IF attempt === opts.maxRetries OR isClientError(error):  // 4xx = no retry
+         THROW error
+       delayMs = opts.baseDelayMs * Math.pow(4, attempt) + Math.random() * 500
+       await sleep(delayMs)  // 2s, 8s + jitter
+```
+
+## Integration Fix: confirmUpload enqueue
+
+```
+NOTE: The existing video.confirmUpload mutation (video.ts line 254-260) must be patched:
+  - Remove `userId` from job payload (not in STTJobData type)
+  - Add `language: 'ru'` (default; future: user-selectable)
+
+BEFORE:
+  sttQueue.add('stt', { videoId, userId, filePath, strategy })
+
+AFTER:
+  sttQueue.add('stt', { videoId, filePath: video.filePath, strategy, language: 'ru' })
 ```

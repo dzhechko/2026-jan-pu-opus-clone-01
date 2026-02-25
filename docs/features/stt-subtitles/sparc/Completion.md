@@ -46,6 +46,11 @@ Verify: `ffmpeg -version` and `ffprobe -version` must succeed at worker startup.
 
 **No schema changes needed.** The Transcript model and all required fields already exist in `packages/db/prisma/schema.prisma`.
 
+## Existing Code Patches Required
+
+- **`apps/web/lib/trpc/routers/video.ts`** (confirmUpload): Remove `userId` from STT job payload (not in STTJobData type), add `language: 'ru'`
+- **`apps/worker/lib/llm-router.ts`**: Extract `createSTTClient()` helper from private `getClient()` method
+
 ## Deployment Checklist
 
 - [ ] `CLOUDRU_API_KEY` set in production `.env`

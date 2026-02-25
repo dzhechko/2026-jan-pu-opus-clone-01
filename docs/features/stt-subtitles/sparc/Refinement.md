@@ -40,7 +40,7 @@
 | # | Edge Case | Expected Behavior |
 |---|-----------|-------------------|
 | I1 | /tmp disk full | FFmpeg fails → STT job fails → retry via BullMQ (may succeed after /tmp cleanup) |
-| I2 | S3 download timeout | Retry download up to 2 times. On failure, video.status = "failed" |
+| I2 | S3 download timeout | Retry download up to 2 times (exponential backoff). On failure, video.status = "failed" |
 | I3 | Cloud.ru Whisper 503 | Retry up to 2 times with exponential backoff (2s, 8s) |
 | I4 | Worker crash mid-processing | BullMQ marks job as failed → retried (default 3 attempts). /tmp files orphaned → cleaned on container restart |
 | I5 | Very large S3 file download (4GB) | Stream to disk, don't load into memory. ~60s download on 500 Mbps |

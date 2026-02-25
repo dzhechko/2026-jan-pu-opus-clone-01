@@ -62,6 +62,7 @@ Implements the speech-to-text transcription pipeline and subtitle editing for К
 | `apps/worker/lib/s3-download.ts` | Create | ~30 lines |
 | `apps/worker/lib/audio-chunker.ts` | Create | ~60 lines |
 | `apps/worker/lib/ffmpeg.ts` | Modify | +40 lines |
+| `apps/worker/lib/llm-router.ts` | Modify | +5 lines (createSTTClient extract) |
 | `packages/s3/src/operations.ts` | Modify | +15 lines |
 | `packages/s3/src/index.ts` | Modify | +1 export |
 | `apps/web/lib/trpc/routers/transcript.ts` | Create | ~100 lines |
