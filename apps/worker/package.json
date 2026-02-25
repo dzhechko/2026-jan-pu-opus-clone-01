@@ -7,7 +7,9 @@
     "dev": "tsx watch workers/index.ts",
     "start": "node dist/workers/index.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint workers/ lib/"
+    "lint": "eslint workers/ lib/",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "bullmq": "^5.25.0",
