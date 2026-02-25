@@ -5,10 +5,43 @@ AI SaaS-сервис: вебинар → 10 промо-шортсов за 5 м�
 ## Quick Start
 
 ```bash
-unzip clipmaker.zip
-cd clipmaker
-claude
-/start
+# 1. Install dependencies
+npm install
+
+# 2. Start infrastructure
+docker compose up -d postgres redis
+
+# 3. Run database migration
+npx prisma migrate dev --schema=packages/db/prisma/schema.prisma
+
+# 4. Seed database (optional)
+npx tsx packages/db/prisma/seed.ts
+
+# 5. Start development
+npm run dev
+```
+
+## Project Structure
+
+```
+├── apps/
+│   ├── web/              — Next.js 15 (pages, API, tRPC, components)
+│   └── worker/           — BullMQ workers (STT, LLM, Video, Publish, Stats)
+├── packages/
+│   ├── db/               — Prisma schema + client (8 tables)
+│   ├── queue/            — BullMQ job definitions + queue factory
+│   ├── types/            — Shared TypeScript types
+│   └── config/           — Environment validation + LLM provider configs
+├── docker-compose.yml    — PostgreSQL 16, Redis 7, web, 4 workers
+└── docs/                 — SPARC documentation
+```
+
+## Docker Services
+
+```bash
+docker compose up -d          # All services
+docker compose up -d postgres redis  # Infrastructure only
+docker compose logs -f worker-stt    # Watch specific worker
 ```
 
 ## Документация
@@ -19,26 +52,28 @@ claude
 - [Pseudocode](docs/Pseudocode.md) — алгоритмы, API, data structures
 - [LLM Strategy](docs/LLM_Strategy.md) — двойная AI стратегия (Cloud.ru + Global)
 - [Test Scenarios](docs/test-scenarios.md) — 45+ BDD сценариев
-- [Validation Report](docs/validation-report.md) — результаты валидации
 
 ## Стек
 
-- **Architecture:** Distributed Monolith (Monorepo, Turborepo)
-- **Frontend:** Next.js 15, React 19, TypeScript, shadcn/ui
-- **Backend:** tRPC, BullMQ, PostgreSQL 16, Redis 7
-- **AI (RU):** Cloud.ru — T-Pro 2.1, Whisper, GigaChat3, Qwen3, GLM-4.6
-- **AI (Global):** Gemini Flash, Claude Haiku 4.5, OpenAI Whisper
-- **Video:** FFmpeg 7
-- **Deploy:** Docker Compose на VPS
-- **Payments:** ЮKassa + СБП
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 15, React 19, TypeScript, shadcn/ui, Tailwind |
+| API | tRPC + Zod validation |
+| Auth | NextAuth.js (email + VK OAuth), JWT |
+| Queue | BullMQ on Redis 7 |
+| Database | PostgreSQL 16 + Prisma ORM |
+| AI (RU) | Cloud.ru: T-Pro 2.1, GigaChat3, Qwen3, GLM-4.6, Whisper |
+| AI (Global) | Gemini Flash/Lite/Pro, Claude Haiku 4.5, OpenAI Whisper |
+| Video | FFmpeg 7 (subprocess) |
+| Payments | ЮKassa + СБП |
+| Deploy | Docker Compose |
 
 ## Команды Claude Code
 
 | Команда | Описание |
 |---------|----------|
-| `/start` | Bootstrap проекта из документации |
 | `/plan [feature]` | Спланировать фичу |
-| `/test [scope]` | Тесты |
+| `/feature [name]` | Полный 4-фазный lifecycle фичи |
+| `/test [scope]` | Генерация и запуск тестов |
 | `/deploy [env]` | Деплой |
-| `/feature [name]` | Полный lifecycle фичи |
-| `/myinsights` | Захватить инсайт |
+| `/myinsights` | Захватить инсайт разработки |
