@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import { mkdtemp, rm, writeFile, readFile, unlink, rename } from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -13,7 +13,6 @@ import { createLogger } from '../lib/logger';
 import { downloadFromS3 } from '../lib/s3-download';
 import {
   renderClip,
-  execFFmpeg,
   generateSubtitleFile,
   buildFilterChain,
   generateCtaEndCard,
@@ -24,8 +23,6 @@ import {
 } from '../lib/ffmpeg';
 
 const logger = createLogger('worker-video-render');
-
-const FFMPEG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // ---------------------------------------------------------------------------
 // Zod validation schemas
@@ -104,6 +101,10 @@ async function checkVideoFailure(videoId: string): Promise<void> {
   }
 }
 
+function safeProgress(job: Job, progress: number): void {
+  job.updateProgress(progress).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -129,8 +130,9 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     await prisma.clip.update({
       where: { id: jobData.clipId },
       data: { status: 'failed' },
-    });
-    throw new Error(`Invalid job data: ${parsed.error.message}`);
+    }).catch(() => {});
+    // UnrecoverableError prevents BullMQ from retrying
+    throw new UnrecoverableError(`Invalid job data: ${parsed.error.message}`);
   }
 
   const data = parsed.data;
@@ -181,7 +183,7 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     const s3ThumbnailKey = thumbnailPath(userId, video.id, clip.id);
 
     // 6. Download source video from S3
-    await job.updateProgress(10);
+    safeProgress(job, 10);
     logger.info({ event: 's3_download_start', s3Key: data.sourceFilePath });
     await downloadFromS3(data.sourceFilePath, sourceLocal);
     logger.info({ event: 's3_download_complete', localPath: sourceLocal });
@@ -209,7 +211,7 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     );
 
     // 9. Render clip via FFmpeg
-    await job.updateProgress(30);
+    safeProgress(job, 30);
     await renderClip({
       inputPath: sourceLocal,
       outputPath: renderedClip,
@@ -242,7 +244,7 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     }
 
     // 10. Generate thumbnail (non-fatal — proceed without if it fails)
-    await job.updateProgress(70);
+    safeProgress(job, 70);
     const thumbnailTimeOffset = clipDuration * 0.25;
     let thumbnailGenerated = false;
     try {
@@ -258,7 +260,10 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     }
 
     // 11. Upload rendered clip + thumbnail to S3
-    await job.updateProgress(80);
+    // Note: readFile loads entire clip into memory. For clips up to 180s at 1080p,
+    // this is ~50-200MB per clip. With concurrency 3, peak ~600MB. Acceptable for
+    // 4GB+ worker containers. Streaming upload requires changes to @clipmaker/s3.
+    safeProgress(job, 80);
     const clipBuffer = await readFile(renderedClip);
     await putObject(s3ClipKey, clipBuffer, 'video/mp4');
     logger.info({ event: 's3_upload_clip', key: s3ClipKey });
@@ -270,7 +275,7 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     }
 
     // 12. Update clip in DB: filePath, thumbnailPath, status='ready'
-    await job.updateProgress(95);
+    safeProgress(job, 95);
     await prisma.clip.update({
       where: { id: clip.id },
       data: {
@@ -283,7 +288,7 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
     // 13. Check if all clips for this video are ready
     await checkVideoCompletion(video.id);
 
-    await job.updateProgress(100);
+    safeProgress(job, 100);
     logger.info({ event: 'render_complete', clipId: clip.id, s3Path: s3ClipKey });
   } catch (error) {
     logger.error({
@@ -293,14 +298,8 @@ async function handleRenderJob(job: Job<VideoRenderJobData>): Promise<void> {
       stack: error instanceof Error ? error.stack : undefined,
     });
 
-    // Mark clip as failed, then re-throw for BullMQ retry
-    await prisma.clip.update({
-      where: { id: data.clipId },
-      data: { status: 'failed' },
-    }).catch((updateErr) => {
-      logger.warn({ event: 'render_status_update_failed', clipId: data.clipId, error: updateErr });
-    });
-
+    // Don't mark clip as failed here — let BullMQ retry first.
+    // The on('failed') handler marks failed only after all retries are exhausted.
     throw error;
   } finally {
     // 14. Cleanup temp files (non-fatal)
@@ -346,8 +345,11 @@ worker.on('failed', async (job, err) => {
     attemptsMade: job?.attemptsMade,
   });
 
-  // Only mark clip as failed and check video failure after ALL retries exhausted
-  if (job && clipId && job.attemptsMade === job.opts?.attempts) {
+  // Mark clip as failed and check video failure after ALL retries exhausted.
+  // BullMQ's `attempts` defaults to 0 (no retries) if not set on the job.
+  // DEFAULT_JOB_OPTIONS sets attempts=3, so attemptsMade will be 3 on final failure.
+  const maxAttempts = job?.opts?.attempts ?? 0;
+  if (job && clipId && job.attemptsMade >= maxAttempts) {
     logger.error({
       event: 'render_job_exhausted',
       jobId: job.id,

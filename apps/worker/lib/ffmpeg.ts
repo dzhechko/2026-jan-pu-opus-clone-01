@@ -55,7 +55,7 @@ type RenderOptions = {
 export function escapeDrawtext(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
-    .replace(/'/g, "'\\''")
+    .replace(/'/g, "\\'")
     .replace(/:/g, '\\:');
 }
 
@@ -67,7 +67,7 @@ export function escapeFFmpegPath(filePath: string): string {
   return filePath
     .replace(/\\/g, '\\\\\\\\')
     .replace(/:/g, '\\:')
-    .replace(/'/g, "'\\''");
+    .replace(/'/g, "\\'");
 }
 
 /**
@@ -163,7 +163,7 @@ export function buildCtaOverlayFilter(
   const enableExpr = `enable='between(t,${enableStart},${clipDuration})'`;
 
   return (
-    `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
+    `drawtext=text='${escapedText}':font=Montserrat:fontsize=${fontSize}:fontcolor=${fontColor}:` +
     `borderw=${borderWidth}:bordercolor=${borderColor}:` +
     `shadowcolor=${shadowColor}:shadowx=2:shadowy=2:` +
     `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
@@ -196,12 +196,13 @@ export async function generateCtaEndCard(
     '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
     '-t', String(cta.duration),
     '-vf',
-    `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
+    `drawtext=text='${escapedText}':font=Montserrat:fontsize=${fontSize}:fontcolor=${fontColor}:` +
     `box=1:boxcolor=${boxColor}:boxborderw=${boxBorderW}:` +
     `x=(w-text_w)/2:y=(h-text_h)/2`,
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-    '-c:a', 'aac', '-b:a', '128k',
+    '-profile:v', 'high', '-level', '4.1',
     '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
     '-movflags', '+faststart',
     outputPath,
   ];
@@ -263,7 +264,7 @@ export function buildWatermarkDrawtext(width: number, height: number): string {
   const yPos = `h-text_h-${yPadding}`;
 
   return (
-    `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${fontColor}:` +
+    `drawtext=text='${escapedText}':font=Montserrat:fontsize=${fontSize}:fontcolor=${fontColor}:` +
     `shadowcolor=${shadowColor}:shadowx=1:shadowy=1:` +
     `x=${xPos}:y=${yPos}`
   );
@@ -354,13 +355,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
     const startTimecode = formatASSTimecode(start);
     const endTimecode = formatASSTimecode(end);
 
-    // Sanitize text: convert newlines to ASS line breaks, escape override blocks
-    let cleanText = segment.text
-      .replace(/\r?\n/g, '\\N');
-    cleanText = escapeAssText(cleanText);
+    // Word wrap first (operates on raw text lengths), then sanitize
+    let cleanText = wrapSubtitleText(segment.text, maxCharsPerLine);
 
-    // Word wrap for mobile readability
-    cleanText = wrapSubtitleText(cleanText, maxCharsPerLine);
+    // Convert remaining literal newlines to ASS line breaks
+    cleanText = cleanText.replace(/\r?\n/g, '\\N');
+
+    // Escape ASS override block characters
+    cleanText = escapeAssText(cleanText);
 
     events.push(`Dialogue: 0,${startTimecode},${endTimecode},Default,,0,0,0,,${cleanText}`);
   }
@@ -440,7 +442,7 @@ export async function extractAudio(
   outputPath: string,
   maxDurationSeconds?: number,
 ): Promise<void> {
-  const args = ['-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-acodec', 'pcm_s16le'];
+  const args = ['-y', '-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-acodec', 'pcm_s16le'];
   if (maxDurationSeconds !== undefined) {
     args.push('-t', String(maxDurationSeconds));
   }
@@ -461,10 +463,11 @@ export function renderClip(options: RenderOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     const vf = options.filterChain ?? getScaleFilter(options.format);
 
+    const duration = options.endTime - options.startTime;
     const args: string[] = [
       '-y',
       '-ss', String(options.startTime),
-      '-to', String(options.endTime),
+      '-t', String(duration),
       '-i', options.inputPath,
       '-vf', vf,
       '-c:v', 'libx264',
@@ -475,6 +478,7 @@ export function renderClip(options: RenderOptions): Promise<void> {
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
       '-b:a', '128k',
+      '-ar', '44100',
       '-ac', '2',
       '-movflags', '+faststart',
       options.outputPath,
