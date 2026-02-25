@@ -19,7 +19,7 @@ export {
 export type { MultipartUploadInit } from './multipart';
 
 // Operations
-export { headObject, getObjectBytes, putObject, deleteObject } from './operations';
+export { headObject, getObjectBytes, getObjectStream, putObject, deleteObject } from './operations';
 
 // Validation
 export { validateMagicBytes } from './validation';

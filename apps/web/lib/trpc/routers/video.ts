@@ -250,13 +250,13 @@ export const videoRouter = router({
         },
       });
 
-      // Enqueue STT job
+      // Enqueue STT job (payload must match STTJobData type)
       const sttQueue = createQueue(QUEUE_NAMES.STT);
       await sttQueue.add('stt', {
         videoId: video.id,
-        userId,
         filePath: video.filePath,
         strategy,
+        language: 'ru',
       });
 
       return { status: 'transcribing' as const };

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
 import { prisma } from '@clipmaker/db';
 import { ClipList } from '@/components/clips/clip-list';
+import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
 
 export default async function VideoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -33,7 +34,10 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
         </div>
       </div>
 
-      <ClipList clips={video.clips} videoStatus={video.status} />
+      <div className="space-y-6">
+        <TranscriptViewer videoId={video.id} videoStatus={video.status} />
+        <ClipList clips={video.clips} videoStatus={video.status} />
+      </div>
     </div>
   );
 }

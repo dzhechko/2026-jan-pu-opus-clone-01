@@ -1,6 +1,8 @@
-import { spawn } from 'child_process';
+import { spawn, execFile as execFileCb } from 'child_process';
+import { promisify } from 'util';
 import { createLogger } from './logger';
 
+const execFileAsync = promisify(execFileCb);
 const logger = createLogger('ffmpeg');
 const FFMPEG_TIMEOUT = 5 * 60 * 1000; // 5 min
 
@@ -24,6 +26,44 @@ function getScaleFilter(format: '9:16' | '1:1' | '16:9'): string {
     case '16:9':
       return 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2';
   }
+}
+
+export async function execFFmpeg(args: string[], timeoutMs = 30_000): Promise<void> {
+  logger.debug({ event: 'ffmpeg_exec', args: args.slice(0, 6) });
+  try {
+    await execFileAsync('ffmpeg', args, { timeout: timeoutMs });
+  } catch (error) {
+    const err = error as { stderr?: string; code?: number };
+    logger.error({ event: 'ffmpeg_exec_error', stderr: (err.stderr ?? '').slice(-500) });
+    throw new Error(`FFmpeg failed: ${(err.stderr ?? '').slice(-200)}`);
+  }
+}
+
+export async function ffprobeGetDuration(filePath: string): Promise<number> {
+  const { stdout } = await execFileAsync(
+    'ffprobe',
+    ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
+    { timeout: 10_000 },
+  );
+  const parsed = JSON.parse(stdout);
+  const duration = parseFloat(parsed.format?.duration);
+  if (isNaN(duration) || duration <= 0) {
+    throw new Error('Could not determine video duration');
+  }
+  return duration;
+}
+
+export async function extractAudio(
+  inputPath: string,
+  outputPath: string,
+  maxDurationSeconds?: number,
+): Promise<void> {
+  const args = ['-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-acodec', 'pcm_s16le'];
+  if (maxDurationSeconds !== undefined) {
+    args.push('-t', String(maxDurationSeconds));
+  }
+  args.push(outputPath);
+  await execFFmpeg(args, 120_000); // 120s for long videos
 }
 
 export function renderClip(options: RenderOptions): Promise<void> {

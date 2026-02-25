@@ -12,6 +12,7 @@
   "dependencies": {
     "bullmq": "^5.25.0",
     "openai": "^4.73.0",
+    "p-map": "^7.0.0",
     "pino": "^9.5.0",
     "@clipmaker/db": "*",
     "@clipmaker/s3": "*",

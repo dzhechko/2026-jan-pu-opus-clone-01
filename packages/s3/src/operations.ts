@@ -83,6 +83,18 @@ export async function putObject(
   );
 }
 
+export async function getObjectStream(key: string): Promise<import('stream').Readable> {
+  const s3 = getS3Client();
+  const result = await withRetry(() =>
+    s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: key })),
+  );
+  if (!result.Body) {
+    throw new Error(`Object body is empty: ${key}`);
+  }
+  // AWS SDK v3 Body in Node.js context is Readable
+  return result.Body as unknown as import('stream').Readable;
+}
+
 export async function deleteObject(key: string): Promise<void> {
   const s3 = getS3Client();
   // S3 DeleteObject is idempotent (returns 204 even if key doesn't exist).
