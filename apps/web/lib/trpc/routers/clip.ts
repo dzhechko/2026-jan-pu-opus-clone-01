@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { generateDownloadUrl } from '@clipmaker/s3';
 
 export const clipRouter = router({
   get: protectedProcedure
@@ -87,5 +88,24 @@ export const clipRouter = router({
 
       // TODO: Add publish jobs to queue
       return publications;
+    }),
+
+  download: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const clip = await ctx.prisma.clip.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+      });
+
+      if (!clip) throw new TRPCError({ code: 'NOT_FOUND', message: 'Клип не найден' });
+      if (clip.status !== 'ready') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Клип ещё не готов' });
+      }
+      if (!clip.filePath) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Файл клипа не найден' });
+      }
+
+      const downloadUrl = await generateDownloadUrl(clip.filePath);
+      return { downloadUrl };
     }),
 });
