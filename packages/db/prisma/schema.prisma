@@ -113,6 +113,7 @@ model Video {
   sourceType            VideoSourceType @map("source_type")
   sourceUrl             String?       @map("source_url")
   filePath              String        @map("file_path")
+  fileSize              BigInt?       @map("file_size")
   durationSeconds       Int?          @map("duration_seconds")
   status                VideoStatus   @default(uploading)
   llmProviderUsed       LLMProviderPreference? @map("llm_provider_used")
