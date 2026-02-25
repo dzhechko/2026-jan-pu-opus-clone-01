@@ -5,8 +5,8 @@ import path from 'path';
 import os from 'os';
 import pMap from 'p-map';
 import type { STTJobData, TranscriptSegment } from '@clipmaker/types';
-import { QUEUE_NAMES } from '@clipmaker/queue';
-import { getRedisConnection } from '@clipmaker/queue/src/queues';
+import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
+import { createQueue, getRedisConnection } from '@clipmaker/queue/src/queues';
 import { prisma } from '@clipmaker/db';
 import { createLogger } from '../lib/logger';
 import { ffprobeGetDuration, extractAudio } from '../lib/ffmpeg';
@@ -168,6 +168,20 @@ const worker = new Worker<STTJobData>(
           },
         }),
       ]);
+
+      // 10. Enqueue LLM analysis (moment selection)
+      const llmQueue = createQueue(QUEUE_NAMES.LLM);
+      await llmQueue.add('llm:moment_selection', {
+        videoId: video.id,
+        task: 'moment_selection' as const,
+        strategy,
+        input: {
+          fullText,
+          tokenCount,
+          planId: user.planId,
+          videoDurationSeconds: Math.round(durationSeconds),
+        },
+      }, DEFAULT_JOB_OPTIONS);
 
       logger.info({
         event: 'stt_complete',

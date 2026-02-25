@@ -8,6 +8,7 @@ export type ViralityScore = {
   engagement: number;
   flow: number;
   trend: number;
+  tips: string[];
 };
 
 export type SubtitleSegment = {

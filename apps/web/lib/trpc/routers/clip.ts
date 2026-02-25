@@ -4,6 +4,31 @@ import { TRPCError } from '@trpc/server';
 import { generateDownloadUrl } from '@clipmaker/s3';
 
 export const clipRouter = router({
+  getByVideo: protectedProcedure
+    .input(z.object({ videoId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const video = await ctx.prisma.video.findFirst({
+        where: { id: input.videoId, userId: ctx.session.user.id },
+      });
+
+      if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
+
+      const clips = await ctx.prisma.clip.findMany({
+        where: { videoId: input.videoId },
+        include: { publications: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Sort by viralityScore.total descending (Prisma doesn't support JSON path ordering)
+      const sorted = clips.sort((a, b) => {
+        const scoreA = (a.viralityScore as { total?: number })?.total ?? 0;
+        const scoreB = (b.viralityScore as { total?: number })?.total ?? 0;
+        return scoreB - scoreA;
+      });
+
+      return { clips: sorted, videoStatus: video.status };
+    }),
+
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
