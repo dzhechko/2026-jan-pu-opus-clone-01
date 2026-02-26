@@ -262,6 +262,37 @@ export const videoRouter = router({
       return { status: 'transcribing' as const };
     }),
 
+  delete: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const video = await ctx.prisma.video.findFirst({
+        where: { id: input.id, userId },
+        include: {
+          clips: { select: { filePath: true, thumbnailPath: true } },
+        },
+      });
+
+      if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
+
+      // Collect all S3 keys: source video + clip files + thumbnails
+      const s3Keys: string[] = [];
+      if (video.filePath) s3Keys.push(video.filePath);
+      for (const clip of video.clips) {
+        if (clip.filePath) s3Keys.push(clip.filePath);
+        if (clip.thumbnailPath) s3Keys.push(clip.thumbnailPath);
+      }
+
+      // Delete S3 objects (ignore errors — files may already be gone)
+      await Promise.allSettled(s3Keys.map((key) => deleteObject(key)));
+
+      // Cascade delete: transcript, clips, publications removed by Prisma onDelete
+      await ctx.prisma.video.delete({ where: { id: video.id } });
+
+      return { deleted: true };
+    }),
+
   createFromUrl: protectedProcedure
     .input(
       z.object({

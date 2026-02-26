@@ -4,6 +4,7 @@ import { prisma } from '@clipmaker/db';
 import { generateDownloadUrl } from '@clipmaker/s3';
 import { ClipList } from '@/components/clips/clip-list';
 import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
+import { VideoHeader } from '@/components/video/video-header';
 
 const useS3Proxy = process.env.NEXT_PUBLIC_USE_S3_PROXY === 'true';
 
@@ -49,14 +50,13 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ vi
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{video.title}</h1>
-        <div className="flex gap-4 mt-2 text-sm text-gray-500">
-          <span>Статус: {video.status}</span>
-          {video.durationSeconds && <span>{Math.round(video.durationSeconds / 60)} мин</span>}
-          {video.transcript && <span>STT: {video.transcript.sttModel}</span>}
-        </div>
-      </div>
+      <VideoHeader
+        videoId={video.id}
+        title={video.title}
+        status={video.status}
+        durationSeconds={video.durationSeconds}
+        sttModel={video.transcript?.sttModel ?? null}
+      />
 
       <div className="space-y-6">
         <TranscriptViewer videoId={video.id} videoStatus={video.status} />
