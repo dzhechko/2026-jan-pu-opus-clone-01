@@ -1,12 +1,13 @@
 import { Worker } from 'bullmq';
-import { createWriteStream } from 'fs';
-import { open, readFile, stat, mkdtemp, rm } from 'fs/promises';
+import { createWriteStream, createReadStream } from 'fs';
+import { open, stat, mkdtemp, rm } from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import type { VideoDownloadJobData } from '@clipmaker/types';
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 import { createQueue, getRedisConnection } from '@clipmaker/queue/src/queues';
-import { videoSourcePath, validateMagicBytes, putObject } from '@clipmaker/s3';
+import { videoSourcePath, validateMagicBytes, getS3Client, getBucket } from '@clipmaker/s3';
 import { prisma } from '@clipmaker/db';
 import { createLogger } from '../lib/logger';
 import { safeFetch } from '../lib/ssrf-validator';
@@ -70,18 +71,107 @@ function guessExtension(contentType: string | null, url: string): string {
   return 'mp4';
 }
 
+const PART_SIZE = 10 * 1024 * 1024; // 10MB per part
+const SMALL_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB — single PUT for small files
+
 /**
- * Uploads a file from disk to S3 using putObject.
- * Reads the file into memory. For the download worker's use case
- * (max 4GB, worker concurrency 2), this is acceptable.
+ * Uploads a file from disk to S3 using streaming.
+ * - Files < 50MB: reads into memory for single putObject call
+ * - Files >= 50MB: uses S3 multipart upload with 10MB parts
+ *   to keep memory usage bounded (~10MB per concurrent part)
  */
 async function uploadFileToS3(
   localPath: string,
   s3Key: string,
   contentType: string,
+  fileSize: number,
 ): Promise<void> {
-  const fileBuffer = await readFile(localPath);
-  await putObject(s3Key, fileBuffer, contentType);
+  const s3 = getS3Client();
+  const bucket = getBucket();
+
+  if (fileSize < SMALL_FILE_THRESHOLD) {
+    // Small file: read into memory and single PutObject
+    const chunks: Buffer[] = [];
+    const stream = createReadStream(localPath);
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: s3Key,
+      Body: Buffer.concat(chunks),
+      ContentType: contentType,
+    }));
+    return;
+  }
+
+  // Large file: multipart upload streaming from disk
+  const createResp = await s3.send(new CreateMultipartUploadCommand({
+    Bucket: bucket,
+    Key: s3Key,
+    ContentType: contentType,
+  }));
+  const uploadId = createResp.UploadId;
+  if (!uploadId) throw new Error('Failed to initiate multipart upload');
+
+  const parts: { PartNumber: number; ETag: string }[] = [];
+  let partNumber = 1;
+
+  try {
+    const stream = createReadStream(localPath, { highWaterMark: PART_SIZE });
+    let partBuffer = Buffer.alloc(0);
+
+    for await (const chunk of stream) {
+      partBuffer = Buffer.concat([partBuffer, chunk as Buffer]);
+
+      while (partBuffer.length >= PART_SIZE) {
+        const partData = partBuffer.subarray(0, PART_SIZE);
+        partBuffer = partBuffer.subarray(PART_SIZE);
+
+        const uploadResp = await s3.send(new UploadPartCommand({
+          Bucket: bucket,
+          Key: s3Key,
+          UploadId: uploadId,
+          PartNumber: partNumber,
+          Body: partData,
+        }));
+
+        parts.push({ PartNumber: partNumber, ETag: uploadResp.ETag! });
+        partNumber++;
+      }
+    }
+
+    // Upload remaining bytes as final part
+    if (partBuffer.length > 0) {
+      const uploadResp = await s3.send(new UploadPartCommand({
+        Bucket: bucket,
+        Key: s3Key,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+        Body: partBuffer,
+      }));
+      parts.push({ PartNumber: partNumber, ETag: uploadResp.ETag! });
+    }
+
+    await s3.send(new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: s3Key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts },
+    }));
+  } catch (error) {
+    // Best-effort abort on failure
+    try {
+      await s3.send(new AbortMultipartUploadCommand({
+        Bucket: bucket,
+        Key: s3Key,
+        UploadId: uploadId,
+      }));
+    } catch {
+      // Abort itself failed — orphan cleanup cron handles this
+    }
+    throw error;
+  }
 }
 
 const worker = new Worker<VideoDownloadJobData>(
@@ -122,7 +212,10 @@ const worker = new Worker<VideoDownloadJobData>(
       // 3. Validate Content-Type
       const contentType = response.headers.get('content-type');
       const baseContentType = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
-      if (contentType && !ALLOWED_CONTENT_TYPES.has(baseContentType)) {
+      if (!contentType) {
+        // No Content-Type header — proceed but warn. Magic bytes will catch non-video files.
+        logger.warn({ event: 'download_no_content_type', videoId, url: url.slice(0, 200) });
+      } else if (!ALLOWED_CONTENT_TYPES.has(baseContentType)) {
         clearTimeout(timeout);
         throw new Error(`Invalid content type: ${baseContentType}`);
       }
@@ -208,7 +301,7 @@ const worker = new Worker<VideoDownloadJobData>(
       const s3Key = videoSourcePath(userId, videoId, ext);
       logger.info({ event: 'download_s3_upload_start', videoId, s3Key, fileSize });
 
-      await uploadFileToS3(tmpPath, s3Key, `video/${ext}`);
+      await uploadFileToS3(tmpPath, s3Key, `video/${ext}`, fileSize);
 
       logger.info({ event: 'download_s3_upload_complete', videoId, s3Key });
 

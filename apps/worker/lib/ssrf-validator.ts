@@ -172,6 +172,13 @@ export async function safeFetch(
 
     // Follow redirects manually to validate each target
     if (status >= 300 && status < 400) {
+      // Consume response body to release the connection
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Ignore errors when discarding redirect body
+      }
+
       redirectCount++;
       if (redirectCount > MAX_REDIRECTS) {
         throw new Error('Too many redirects');
