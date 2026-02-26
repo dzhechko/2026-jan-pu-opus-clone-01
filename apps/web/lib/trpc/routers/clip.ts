@@ -476,11 +476,11 @@ export const clipRouter = router({
       );
 
       // 8. Enqueue BullMQ jobs for each publication
-      const publishQueue = createQueue(QUEUE_NAMES.PUBLISH);
+      const publishQueue = createQueue(QUEUE_NAMES.PUBLISH!);
 
       for (let i = 0; i < publications.length; i++) {
-        const pub = publications[i];
-        const conn = connections[i];
+        const pub = publications[i]!;
+        const conn = connections[i]!;
 
         const jobData: PublishJobData = {
           publicationId: pub.id,
@@ -543,7 +543,7 @@ export const clipRouter = router({
 
       // Remove the BullMQ job
       try {
-        const publishQueue = createQueue(QUEUE_NAMES.PUBLISH);
+        const publishQueue = createQueue(QUEUE_NAMES.PUBLISH!);
         const job = await publishQueue.getJob(`pub-${input.publicationId}`);
         if (job) {
           await job.remove();
@@ -607,7 +607,7 @@ export const clipRouter = router({
       });
 
       // Re-enqueue BullMQ job
-      const publishQueue = createQueue(QUEUE_NAMES.PUBLISH);
+      const publishQueue = createQueue(QUEUE_NAMES.PUBLISH!);
 
       const jobData: PublishJobData = {
         publicationId: publication.id,

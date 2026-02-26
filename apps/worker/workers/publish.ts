@@ -98,7 +98,7 @@ async function tryRefreshToken(connectionId: string, platform: string): Promise<
 }
 
 const worker = new Worker<PublishJobData>(
-  QUEUE_NAMES.PUBLISH,
+  QUEUE_NAMES.PUBLISH!,
   async (job) => {
     const { clipId, publicationId, platform, connectionId, filePath, title, description, metadata } = job.data;
 

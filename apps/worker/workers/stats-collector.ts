@@ -10,7 +10,7 @@ import { createLogger } from '../lib/logger';
 const logger = createLogger('worker-stats');
 
 const worker = new Worker<StatsCollectJobData>(
-  QUEUE_NAMES.STATS_COLLECT,
+  QUEUE_NAMES.STATS_COLLECT!,
   async (job) => {
     const { publicationId, platform, platformPostId, connectionId } = job.data;
 

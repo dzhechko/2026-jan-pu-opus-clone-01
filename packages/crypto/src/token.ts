@@ -51,7 +51,9 @@ export function decryptToken(encrypted: string, secretHex: string): string {
     throw new Error('Invalid encrypted token format — expected iv:ciphertext:authTag');
   }
 
-  const [ivHex, ciphertextHex, authTagHex] = parts;
+  const ivHex = parts[0]!;
+  const ciphertextHex = parts[1]!;
+  const authTagHex = parts[2]!;
 
   const iv = Buffer.from(ivHex, 'hex');
   const ciphertext = Buffer.from(ciphertextHex, 'hex');

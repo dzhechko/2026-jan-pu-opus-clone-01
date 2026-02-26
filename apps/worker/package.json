@@ -20,7 +20,8 @@
     "@clipmaker/s3": "*",
     "@clipmaker/types": "*",
     "@clipmaker/queue": "*",
-    "@clipmaker/config": "*"
+    "@clipmaker/config": "*",
+    "@clipmaker/crypto": "*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
