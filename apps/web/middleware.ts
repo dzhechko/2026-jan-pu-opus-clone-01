@@ -28,9 +28,17 @@ const PUBLIC_PATH_PREFIXES: readonly string[] = [
   '/api/auth/',
   '/api/health',
   '/api/webhooks/',
-  '/api/trpc/',
   '/_next/',
   '/favicon.ico',
+] as const;
+
+/**
+ * "Soft auth" paths: verify JWT if present (to set x-user-* headers),
+ * but don't redirect to /login when absent. tRPC handles its own auth
+ * via protectedProcedure / publicProcedure.
+ */
+const SOFT_AUTH_PREFIXES: readonly string[] = [
+  '/api/trpc/',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -71,6 +79,13 @@ function isPublicPath(pathname: string): boolean {
   if (pathname === '/') return true;
 
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+/**
+ * Return `true` for paths that should attempt auth but never redirect.
+ */
+function isSoftAuthPath(pathname: string): boolean {
+  return SOFT_AUTH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
 /**
@@ -173,11 +188,20 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  const softAuth = isSoftAuthPath(pathname);
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
 
-  // 2. No tokens at all — redirect to login.
+  // 2. No tokens at all — redirect to login (unless soft auth).
   if (!accessToken && !refreshToken) {
+    if (softAuth) {
+      // Let tRPC handle auth via protectedProcedure / publicProcedure
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.delete('x-user-id');
+      requestHeaders.delete('x-user-email');
+      requestHeaders.delete('x-user-plan');
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
     return redirectToLogin(request);
   }
 
@@ -191,15 +215,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       if (error instanceof joseErrors.JWTExpired) {
         // Continue to step 4.
       } else {
-        // Tampered / malformed — clear everything.
-        return redirectToLogin(request);
+        // Tampered / malformed — clear everything (unless soft auth).
+        return softAuth ? NextResponse.next() : redirectToLogin(request);
       }
     }
   }
 
   // 4. Access token is missing or expired — attempt silent refresh.
   if (!refreshToken) {
-    return redirectToLogin(request);
+    return softAuth ? NextResponse.next() : redirectToLogin(request);
   }
 
   try {
@@ -254,8 +278,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     return response;
   } catch {
-    // Refresh token is invalid or expired — force re-login.
-    return redirectToLogin(request);
+    // Refresh token is invalid or expired — force re-login (unless soft auth).
+    return softAuth ? NextResponse.next() : redirectToLogin(request);
   }
 }
 
