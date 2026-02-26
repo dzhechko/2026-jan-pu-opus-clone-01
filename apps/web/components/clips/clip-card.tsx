@@ -13,7 +13,7 @@ type ClipCardProps = {
     status: string;
     viralityScore: unknown;
     cta: unknown;
-    thumbnailPath?: string | null;
+    thumbnailUrl?: string;
     publications: Array<{ id: string }>;
   };
   userPlan?: string;
@@ -65,9 +65,9 @@ export const ClipCard = memo(function ClipCard({
   return (
     <div className="bg-white rounded-xl border overflow-hidden hover:shadow-sm transition">
       <div className="aspect-[9/16] bg-gray-100 flex items-center justify-center relative overflow-hidden">
-        {clip.thumbnailPath ? (
+        {clip.thumbnailUrl ? (
           <img
-            src={`/api/clips/${clip.id}/thumbnail`}
+            src={clip.thumbnailUrl}
             alt={clip.title}
             className="w-full h-full object-cover"
             loading="lazy"

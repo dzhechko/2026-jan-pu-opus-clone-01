@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import { prisma } from '@clipmaker/db';
+import { generateDownloadUrl } from '@clipmaker/s3';
 import { ClipList } from '@/components/clips/clip-list';
 import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
+
+const useS3Proxy = process.env.NEXT_PUBLIC_USE_S3_PROXY === 'true';
 
 export default async function VideoDetailPage({ params }: { params: Promise<{ videoId: string }> }) {
   const { videoId: id } = await params;
@@ -25,6 +28,19 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ vi
 
   if (!video) notFound();
 
+  // Generate thumbnail URLs: proxy path (dev) or presigned S3 URL (prod)
+  const clipsWithUrls = await Promise.all(
+    video.clips.map(async (clip) => {
+      let thumbnailUrl: string | undefined;
+      if (clip.thumbnailPath) {
+        thumbnailUrl = useS3Proxy
+          ? `/api/clips/${clip.id}/thumbnail`
+          : await generateDownloadUrl(clip.thumbnailPath);
+      }
+      return { ...clip, thumbnailUrl };
+    }),
+  );
+
   return (
     <div>
       <div className="mb-6">
@@ -39,7 +55,7 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ vi
       <div className="space-y-6">
         <TranscriptViewer videoId={video.id} videoStatus={video.status} />
         <ClipList
-          clips={video.clips}
+          clips={clipsWithUrls}
           videoId={video.id}
           videoStatus={video.status}
           userPlan={userPlan}

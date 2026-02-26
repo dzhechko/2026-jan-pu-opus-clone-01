@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { trpc } from '@/lib/trpc/client';
+
+const useS3Proxy = process.env.NEXT_PUBLIC_USE_S3_PROXY === 'true';
 
 function triggerDownload(href: string, filename: string): void {
   const a = document.createElement('a');
@@ -20,19 +23,31 @@ function safeFilename(title: string | undefined, ext: string): string {
 export function useClipDownload() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const mutationRef = useRef<ReturnType<typeof trpc.clip.download.useMutation>>(undefined);
+
+  // Only initialize tRPC mutation when using presigned URLs
+  const mutation = trpc.clip.download.useMutation();
+  mutationRef.current = mutation;
 
   const download = useCallback(
     async (clipId: string, clipTitle?: string) => {
       try {
         setDownloadingId(clipId);
         setError(null);
-        triggerDownload(`/api/clips/${clipId}/file`, safeFilename(clipTitle, 'mp4'));
+
+        if (useS3Proxy) {
+          // Dev mode: stream through Next.js API proxy
+          triggerDownload(`/api/clips/${clipId}/file`, safeFilename(clipTitle, 'mp4'));
+        } else {
+          // Prod mode: get presigned S3 URL via tRPC
+          const { downloadUrl } = await mutationRef.current!.mutateAsync({ id: clipId });
+          triggerDownload(downloadUrl, safeFilename(clipTitle, 'mp4'));
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Ошибка скачивания';
         setError(message);
       } finally {
-        // Short delay so button stays disabled during download initiation
         setTimeout(() => setDownloadingId(null), 2000);
       }
     },
@@ -56,6 +71,7 @@ export function useDownloadAll() {
     setError(null);
 
     try {
+      // download-all always streams through server (ZIP archive)
       triggerDownload(`/api/videos/${videoId}/download-all`, 'clips.zip');
     } finally {
       setTimeout(() => {

@@ -11,7 +11,7 @@ type ClipData = {
   status: string;
   viralityScore: unknown;
   cta: unknown;
-  thumbnailPath?: string | null;
+  thumbnailUrl?: string;
   publications: Array<{ id: string }>;
 };
 
