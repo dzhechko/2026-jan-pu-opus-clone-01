@@ -1,11 +1,12 @@
 import { Worker } from 'bullmq';
 import pMap from 'p-map';
-import type { LLMJobData, TranscriptSegment, ViralityScore } from '@clipmaker/types';
+import type { LLMJobData, TranscriptSegment, ViralityScore, ByokKeys } from '@clipmaker/types';
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 import { createQueue, getRedisConnection } from '@clipmaker/queue/src/queues';
 import { prisma, type Prisma } from '@clipmaker/db';
 import { LLMRouter } from '../lib/llm-router';
 import { createLogger } from '../lib/logger';
+import { peekByokKey, clearByokKeys } from '../lib/byok-cache';
 import {
   SYSTEM_PROMPT as MOMENT_SELECTION_PROMPT,
   buildUserMessage as buildMomentSelectionInput,
@@ -91,6 +92,25 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
   const user = video.user;
   const transcript = video.transcript;
 
+  // BYOK: Load user's API keys from Redis cache (Global strategy only)
+  let byokKeys: ByokKeys | undefined;
+  if (strategy === 'global') {
+    const [geminiKey, anthropicKey] = await Promise.all([
+      peekByokKey(user.id, 'gemini'),
+      peekByokKey(user.id, 'anthropic'),
+    ]);
+    if (geminiKey || anthropicKey) {
+      byokKeys = {};
+      if (geminiKey) byokKeys.gemini = geminiKey;
+      if (anthropicKey) byokKeys.anthropic = anthropicKey;
+      logger.info({
+        event: 'llm_byok_keys_loaded',
+        videoId,
+        providers: Object.keys(byokKeys),
+      });
+    }
+  }
+
   // C3: Validate transcript segments with Zod
   const rawSegments = Array.isArray(transcript.segments) ? transcript.segments : [];
   const segments = rawSegments
@@ -125,6 +145,7 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
         { role: 'user', content: buildMomentSelectionInput(fullText, videoDurationSeconds) },
       ],
       { jsonMode: true, temperature: 0.7 },
+      byokKeys,
     );
     totalLlmCostKopecks += response.costKopecks;
 
@@ -146,6 +167,7 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
           { role: 'user', content: buildMomentSelectionInput(fullText, videoDurationSeconds) },
         ],
         { jsonMode: true, temperature: 0.5 },
+        byokKeys,
       );
       totalLlmCostKopecks += retryResponse.costKopecks;
       parsed = MomentResponseSchema.safeParse(safeJsonParse(retryResponse.content));
@@ -210,9 +232,9 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
 
       // Run scoring + title + CTA in parallel
       const [scoreResult, titleResult, ctaResult] = await Promise.all([
-        scoreVirality(strategy, momentText, moment, planId),
-        generateTitle(strategy, momentText, moment),
-        generateCta(strategy, momentText),
+        scoreVirality(strategy, momentText, moment, planId, byokKeys),
+        generateTitle(strategy, momentText, moment, byokKeys),
+        generateCta(strategy, momentText, byokKeys),
       ]);
 
       totalLlmCostKopecks += scoreResult.costKopecks + titleResult.costKopecks + ctaResult.costKopecks;
@@ -294,11 +316,19 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
     })),
   );
 
+  // BYOK: Clean up cached keys after pipeline completes
+  if (byokKeys) {
+    await clearByokKeys(user.id).catch((err) => {
+      logger.warn({ event: 'byok_cleanup_failed', userId: user.id, error: String(err) });
+    });
+  }
+
   logger.info({
     event: 'llm_analyze_complete',
     videoId,
     clips: clipsToCreate.length,
     costKopecks: totalLlmCostKopecks,
+    usedByok: !!byokKeys,
   });
 }
 
@@ -316,6 +346,7 @@ async function scoreVirality(
   momentText: string,
   moment: MomentCandidate,
   planId: string,
+  byokKeys?: ByokKeys,
 ): Promise<{ score: ViralityScore; costKopecks: number }> {
   const context = { task: 'virality_scoring' as const, strategy, planId };
   const response = await router.complete(
@@ -325,6 +356,7 @@ async function scoreVirality(
       { role: 'user', content: buildScoringInput(momentText) },
     ],
     { jsonMode: true, temperature: 0.3 },
+    byokKeys,
   );
 
   const parsed = ViralityResponseSchema.safeParse(safeJsonParse(response.content));
@@ -354,6 +386,7 @@ async function generateTitle(
   strategy: 'ru' | 'global',
   momentText: string,
   moment: MomentCandidate,
+  byokKeys?: ByokKeys,
 ): Promise<{ title: string; costKopecks: number }> {
   const context = { task: 'title_generation' as const, strategy };
   const response = await router.complete(
@@ -363,6 +396,7 @@ async function generateTitle(
       { role: 'user', content: buildTitleInput(momentText) },
     ],
     { jsonMode: true, temperature: 0.8 },
+    byokKeys,
   );
 
   const parsed = TitleResponseSchema.safeParse(safeJsonParse(response.content));
@@ -382,6 +416,7 @@ async function generateTitle(
 async function generateCta(
   strategy: 'ru' | 'global',
   momentText: string,
+  byokKeys?: ByokKeys,
 ): Promise<{ cta: { text: string; position: 'end' | 'overlay'; duration: number } | null; costKopecks: number }> {
   const context = { task: 'cta_suggestion' as const, strategy };
   const response = await router.complete(
@@ -391,6 +426,7 @@ async function generateCta(
       { role: 'user', content: buildCtaInput(momentText) },
     ],
     { jsonMode: true, temperature: 0.6 },
+    byokKeys,
   );
 
   const parsed = CtaResponseSchema.safeParse(safeJsonParse(response.content));

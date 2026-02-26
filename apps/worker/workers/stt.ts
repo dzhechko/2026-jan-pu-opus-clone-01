@@ -14,6 +14,7 @@ import { downloadFromS3 } from '../lib/s3-download';
 import { splitAudio } from '../lib/audio-chunker';
 import { createSTTClient, getSTTConfig } from '../lib/stt-client';
 import { retryWithBackoff } from '../lib/retry';
+import { peekByokKey } from '../lib/byok-cache';
 
 const logger = createLogger('worker-stt');
 
@@ -82,7 +83,19 @@ const worker = new Worker<STTJobData>(
 
       // 7. Transcribe chunks in parallel (concurrency 3, max 6 STT calls total with worker concurrency 2)
       const sttConfig = getSTTConfig(strategy);
-      const client = createSTTClient(strategy);
+
+      // BYOK: Check Redis for user's OpenAI key (Global strategy only)
+      let byokOpenaiKey: string | null = null;
+      if (strategy === 'global') {
+        byokOpenaiKey = await peekByokKey(user.id, 'openai');
+        if (byokOpenaiKey) {
+          logger.info({ event: 'stt_byok_key_found', videoId, provider: 'openai' });
+        }
+      }
+
+      const client = byokOpenaiKey
+        ? createSTTClient(strategy, byokOpenaiKey)
+        : createSTTClient(strategy);
 
       const chunkResults = await pMap(
         chunks,
@@ -128,8 +141,10 @@ const worker = new Worker<STTJobData>(
       const tokenCount = Math.ceil(wordCount * 2.5);
 
       // 9. Save transcript + update video + track usage (single transaction)
-      const sttCostKopecks =
-        strategy === 'ru'
+      // BYOK: cost is 0 when using user's own key (they pay the provider directly)
+      const sttCostKopecks = byokOpenaiKey
+        ? 0
+        : strategy === 'ru'
           ? Math.ceil(transcribeDuration * 0.005 * 100) // 0.005₽/sec → kopecks
           : Math.ceil((transcribeDuration / 60) * 0.55 * 100); // ~0.55₽/min → kopecks
 

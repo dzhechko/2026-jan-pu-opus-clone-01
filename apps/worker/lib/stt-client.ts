@@ -4,7 +4,21 @@ import type { LLMStrategy } from '@clipmaker/types';
 
 const clients = new Map<string, OpenAI>();
 
-export function createSTTClient(strategy: LLMStrategy): OpenAI {
+/**
+ * Create an OpenAI client for STT transcription.
+ * If byokApiKey is provided, creates an ephemeral (non-cached) client.
+ */
+export function createSTTClient(strategy: LLMStrategy, byokApiKey?: string): OpenAI {
+  // BYOK: create ephemeral client (do NOT cache -- different key per user)
+  if (byokApiKey) {
+    let baseURL: string | undefined;
+    if (strategy === 'ru') {
+      baseURL = LLM_PROVIDERS.ru.baseUrl;
+    }
+    return new OpenAI({ apiKey: byokApiKey, baseURL });
+  }
+
+  // Server key: cache client for reuse
   const existing = clients.get(strategy);
   if (existing) return existing;
 

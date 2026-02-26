@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
-import type { LLMTask, LLMTier, LLMStrategy, LLMModelConfig } from '@clipmaker/types';
+import type { LLMTask, LLMTier, LLMStrategy, LLMModelConfig, ByokKeys } from '@clipmaker/types';
+import { LLM_PROVIDER_TO_BYOK } from '@clipmaker/types';
 import { LLM_PROVIDERS } from '@clipmaker/config';
 import { createLogger } from './logger';
 
@@ -21,6 +22,7 @@ type LLMResponse = {
   outputTokens: number;
   costKopecks: number;
   durationMs: number;
+  usedByokKey: boolean;
 };
 
 export class LLMRouter {
@@ -53,46 +55,79 @@ export class LLMRouter {
     return config[tierKey];
   }
 
-  private getClient(strategy: LLMStrategy, provider: string): OpenAI {
-    const key = `${strategy}-${provider}`;
-    const existing = this.clients.get(key);
+  /**
+   * Get or create an OpenAI client for the given strategy/provider.
+   * Cached clients use server keys. BYOK clients are ephemeral (not cached).
+   */
+  private getClient(strategy: LLMStrategy, provider: string, byokKey?: string): OpenAI {
+    // BYOK: create ephemeral client (do NOT cache -- different key per user)
+    if (byokKey) {
+      return this.createProviderClient(strategy, provider, byokKey);
+    }
+
+    // Server key: cache client for reuse
+    const cacheKey = `${strategy}-${provider}`;
+    const existing = this.clients.get(cacheKey);
     if (existing) return existing;
 
-    let apiKey: string | undefined;
+    const client = this.createProviderClient(strategy, provider);
+    this.clients.set(cacheKey, client);
+    return client;
+  }
+
+  private createProviderClient(
+    strategy: LLMStrategy,
+    provider: string,
+    overrideApiKey?: string,
+  ): OpenAI {
+    let apiKey: string | undefined = overrideApiKey;
     let baseURL: string | undefined;
 
     if (strategy === 'ru') {
-      apiKey = this.cloudruApiKey;
+      apiKey = apiKey || this.cloudruApiKey;
       baseURL = LLM_PROVIDERS.ru.baseUrl;
     } else {
       switch (provider) {
         case 'google':
-          apiKey = this.globalKeys?.gemini;
+          apiKey = apiKey || this.globalKeys?.gemini;
           baseURL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
           break;
         case 'anthropic':
-          apiKey = this.globalKeys?.anthropic;
+          apiKey = apiKey || this.globalKeys?.anthropic;
           baseURL = 'https://api.anthropic.com/v1/';
           break;
         case 'openai':
-          apiKey = this.globalKeys?.openai;
+          apiKey = apiKey || this.globalKeys?.openai;
           break;
       }
     }
 
-    const client = new OpenAI({ apiKey: apiKey || 'dummy', baseURL });
-    this.clients.set(key, client);
-    return client;
+    return new OpenAI({ apiKey: apiKey || 'dummy', baseURL });
+  }
+
+  /**
+   * Resolve the BYOK key for a specific LLM provider.
+   * Maps LLM provider names (google, openai, anthropic) to BYOK provider keys.
+   */
+  private resolveByokKey(provider: string, byokKeys?: ByokKeys): string | undefined {
+    if (!byokKeys) return undefined;
+    const byokProvider = LLM_PROVIDER_TO_BYOK[provider];
+    if (!byokProvider) return undefined;
+    return byokKeys[byokProvider];
   }
 
   async complete(
     context: RoutingContext,
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean },
+    byokKeys?: ByokKeys,
   ): Promise<LLMResponse> {
     const tier = context.task === 'transcription' ? 1 : (context as RoutingContext & { forceTier?: LLMTier }).forceTier ?? this.selectTier(context);
     const modelConfig = this.getModelConfig(context.strategy, tier);
-    const client = this.getClient(context.strategy, modelConfig.provider);
+
+    const byokKey = this.resolveByokKey(modelConfig.provider, byokKeys);
+    const client = this.getClient(context.strategy, modelConfig.provider, byokKey);
+    const usedByokKey = !!byokKey;
 
     const startTime = Date.now();
 
@@ -110,10 +145,12 @@ export class LLMRouter {
       const inputTokens = usage?.prompt_tokens ?? 0;
       const outputTokens = usage?.completion_tokens ?? 0;
 
-      // Cost in kopecks (per 1M tokens)
-      const costKopecks = Math.ceil(
-        (inputTokens * modelConfig.costInput + outputTokens * modelConfig.costOutput) / 1_000_000,
-      );
+      // Cost in kopecks (per 1M tokens) -- 0 if BYOK (user pays directly)
+      const costKopecks = usedByokKey
+        ? 0
+        : Math.ceil(
+            (inputTokens * modelConfig.costInput + outputTokens * modelConfig.costOutput) / 1_000_000,
+          );
 
       logger.info({
         event: 'llm_complete',
@@ -125,6 +162,7 @@ export class LLMRouter {
         outputTokens,
         costKopecks,
         durationMs,
+        usedByokKey,
       });
 
       return {
@@ -135,11 +173,25 @@ export class LLMRouter {
         outputTokens,
         costKopecks,
         durationMs,
+        usedByokKey,
       };
     } catch (error) {
       const errInfo = error instanceof Error
         ? { message: error.message, code: (error as { status?: number }).status }
         : { message: String(error) };
+      const errorCode = (error as { status?: number }).status;
+
+      // BYOK key rejected (401/403) -- fallback to server key
+      if (usedByokKey && (errorCode === 401 || errorCode === 403)) {
+        logger.warn({
+          event: 'byok_fallback_server_key',
+          model: modelConfig.model,
+          tier,
+          reason: errorCode,
+        });
+        return this.complete(context, messages, options); // no byokKeys = server key
+      }
+
       logger.error({ event: 'llm_error', model: modelConfig.model, tier, error: errInfo });
 
       // Fallback to tier2 if tier1 fails
@@ -149,6 +201,7 @@ export class LLMRouter {
           { ...context, ...({ forceTier: 2 } as Record<string, unknown>) } as RoutingContext,
           messages,
           options,
+          byokKeys,
         );
       }
 
@@ -160,21 +213,34 @@ export class LLMRouter {
     strategy: LLMStrategy,
     audioFile: File | Buffer,
     language: string = 'ru',
+    byokOpenaiKey?: string,
   ): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }>; model: string }> {
     const sttConfig = LLM_PROVIDERS[strategy].stt;
-    const client = this.getClient(strategy, sttConfig.provider);
+    const client = this.getClient(strategy, sttConfig.provider, byokOpenaiKey);
 
-    const response = await client.audio.transcriptions.create({
-      model: sttConfig.model,
-      file: audioFile as File,
-      language,
-      response_format: 'verbose_json',
-    });
+    try {
+      const response = await client.audio.transcriptions.create({
+        model: sttConfig.model,
+        file: audioFile as File,
+        language,
+        response_format: 'verbose_json',
+      });
 
-    return {
-      text: response.text,
-      segments: (response as unknown as { segments?: Array<{ start: number; end: number; text: string }> }).segments || [],
-      model: sttConfig.model,
-    };
+      return {
+        text: response.text,
+        segments: (response as unknown as { segments?: Array<{ start: number; end: number; text: string }> }).segments || [],
+        model: sttConfig.model,
+      };
+    } catch (error) {
+      // BYOK key rejected -- fallback to server key
+      if (byokOpenaiKey) {
+        const errorCode = (error as { status?: number }).status;
+        if (errorCode === 401 || errorCode === 403) {
+          logger.warn({ event: 'byok_stt_fallback', reason: errorCode });
+          return this.transcribe(strategy, audioFile, language); // no BYOK key
+        }
+      }
+      throw error;
+    }
   }
 }
