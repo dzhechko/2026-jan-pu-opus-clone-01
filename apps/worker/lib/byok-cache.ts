@@ -11,6 +11,7 @@
 import { Redis } from 'ioredis';
 import { encryptToken, decryptToken } from '@clipmaker/crypto';
 import type { ByokProvider } from '@clipmaker/types';
+import { BYOK_PROVIDERS } from '@clipmaker/types';
 import { createLogger } from './logger';
 
 const logger = createLogger('byok-cache');
@@ -124,7 +125,7 @@ export async function peekByokKey(
  */
 export async function clearByokKeys(userId: string): Promise<void> {
   const client = getRedis();
-  const providers: ByokProvider[] = ['gemini', 'openai', 'anthropic'];
+  const providers = Object.keys(BYOK_PROVIDERS) as ByokProvider[];
 
   const pipeline = client.pipeline();
   for (const provider of providers) {
@@ -140,7 +141,7 @@ export async function clearByokKeys(userId: string): Promise<void> {
  */
 export async function hasByokKeys(userId: string): Promise<boolean> {
   const client = getRedis();
-  const providers: ByokProvider[] = ['gemini', 'openai', 'anthropic'];
+  const providers = Object.keys(BYOK_PROVIDERS) as ByokProvider[];
 
   for (const provider of providers) {
     const exists = await client.exists(redisKey(userId, provider));

@@ -153,7 +153,7 @@ export const userRouter = router({
   testByokKey: protectedProcedure
     .input(
       z.object({
-        provider: z.enum(['gemini', 'openai', 'anthropic']),
+        provider: z.enum(['gemini', 'openai', 'anthropic', 'openrouter']),
         // SECURITY: Key is sent via tRPC body (encrypted by TLS in transit).
         // Never log the input of this mutation. Never include in error reports.
         apiKey: z.string().min(10).max(256),
@@ -220,6 +220,17 @@ export const userRouter = router({
             return { valid: true, provider };
           }
 
+          case 'openrouter': {
+            const res = await fetch('https://openrouter.ai/api/v1/models', {
+              headers: { Authorization: `Bearer ${apiKey}` },
+              signal: AbortSignal.timeout(10_000),
+            });
+            if (!res.ok) {
+              return { valid: false, error: 'Недействительный ключ OpenRouter' };
+            }
+            return { valid: true, provider };
+          }
+
           default:
             return { valid: false, error: 'Неизвестный провайдер' };
         }
@@ -238,6 +249,7 @@ export const userRouter = router({
           gemini: z.string().min(10).max(256).optional(),
           openai: z.string().min(10).max(256).optional(),
           anthropic: z.string().min(10).max(256).optional(),
+          openrouter: z.string().min(10).max(256).optional(),
         }),
       }),
     )

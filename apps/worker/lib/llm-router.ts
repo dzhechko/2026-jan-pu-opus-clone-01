@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { LLMTask, LLMTier, LLMStrategy, LLMModelConfig, ByokKeys } from '@clipmaker/types';
 import { LLM_PROVIDER_TO_BYOK } from '@clipmaker/types';
-import { LLM_PROVIDERS } from '@clipmaker/config';
+import { LLM_PROVIDERS, OPENROUTER_MODEL_MAP, OPENROUTER_BASE_URL } from '@clipmaker/config';
 import { createLogger } from './logger';
 
 const logger = createLogger('llm-router');
@@ -14,6 +14,11 @@ type RoutingContext = {
   previousScore?: number;
 };
 
+type ResolvedKey = {
+  apiKey: string;
+  viaOpenRouter: boolean;
+};
+
 type LLMResponse = {
   content: string;
   model: string;
@@ -23,6 +28,7 @@ type LLMResponse = {
   costKopecks: number;
   durationMs: number;
   usedByokKey: boolean;
+  viaOpenRouter?: boolean;
 };
 
 export class LLMRouter {
@@ -30,8 +36,18 @@ export class LLMRouter {
 
   constructor(
     private cloudruApiKey?: string,
-    private globalKeys?: { gemini?: string; anthropic?: string; openai?: string },
+    private globalKeys?: { gemini?: string; anthropic?: string; openai?: string; openrouter?: string },
   ) {}
+
+  /** Check if a native (non-OpenRouter) server key exists for a provider */
+  private hasNativeServerKey(provider: string): boolean {
+    switch (provider) {
+      case 'google': return !!this.globalKeys?.gemini;
+      case 'anthropic': return !!this.globalKeys?.anthropic;
+      case 'openai': return !!this.globalKeys?.openai;
+      default: return false;
+    }
+  }
 
   selectTier(context: RoutingContext): LLMTier {
     const { task, tokenCount, planId, previousScore } = context;
@@ -58,11 +74,29 @@ export class LLMRouter {
   /**
    * Get or create an OpenAI client for the given strategy/provider.
    * Cached clients use server keys. BYOK clients are ephemeral (not cached).
+   *
+   * @param useOpenRouter - force OpenRouter baseURL (for BYOK or server fallback)
    */
-  private getClient(strategy: LLMStrategy, provider: string, byokKey?: string): OpenAI {
+  private getClient(
+    strategy: LLMStrategy,
+    provider: string,
+    byokKey?: string,
+    useOpenRouter?: boolean,
+  ): OpenAI {
     // BYOK: create ephemeral client (do NOT cache -- different key per user)
     if (byokKey) {
-      return this.createProviderClient(strategy, provider, byokKey);
+      return this.createProviderClient(strategy, provider, byokKey, useOpenRouter);
+    }
+
+    // Server key fallback: no native key → try OpenRouter server key
+    if (strategy === 'global' && !useOpenRouter && !this.hasNativeServerKey(provider) && this.globalKeys?.openrouter) {
+      const cacheKey = 'global-openrouter';
+      const existing = this.clients.get(cacheKey);
+      if (existing) return existing;
+
+      const client = this.createProviderClient(strategy, provider, this.globalKeys.openrouter, true);
+      this.clients.set(cacheKey, client);
+      return client;
     }
 
     // Server key: cache client for reuse
@@ -79,7 +113,16 @@ export class LLMRouter {
     strategy: LLMStrategy,
     provider: string,
     overrideApiKey?: string,
+    useOpenRouter?: boolean,
   ): OpenAI {
+    // OpenRouter: single baseURL for all providers
+    if (useOpenRouter) {
+      return new OpenAI({
+        apiKey: overrideApiKey || this.globalKeys?.openrouter || 'dummy',
+        baseURL: OPENROUTER_BASE_URL,
+      });
+    }
+
     let apiKey: string | undefined = overrideApiKey;
     let baseURL: string | undefined;
 
@@ -107,13 +150,24 @@ export class LLMRouter {
 
   /**
    * Resolve the BYOK key for a specific LLM provider.
+   * Priority: native BYOK → OpenRouter BYOK.
    * Maps LLM provider names (google, openai, anthropic) to BYOK provider keys.
    */
-  private resolveByokKey(provider: string, byokKeys?: ByokKeys): string | undefined {
+  private resolveByokKey(provider: string, byokKeys?: ByokKeys): ResolvedKey | undefined {
     if (!byokKeys) return undefined;
+
+    // 1. Try native BYOK key (e.g. gemini key for google provider)
     const byokProvider = LLM_PROVIDER_TO_BYOK[provider];
-    if (!byokProvider) return undefined;
-    return byokKeys[byokProvider];
+    if (byokProvider) {
+      const nativeKey = byokKeys[byokProvider];
+      if (nativeKey) return { apiKey: nativeKey, viaOpenRouter: false };
+    }
+
+    // 2. Fallback to OpenRouter BYOK key
+    const openrouterKey = byokKeys.openrouter;
+    if (openrouterKey) return { apiKey: openrouterKey, viaOpenRouter: true };
+
+    return undefined;
   }
 
   async complete(
@@ -125,15 +179,24 @@ export class LLMRouter {
     const tier = context.task === 'transcription' ? 1 : (context as RoutingContext & { forceTier?: LLMTier }).forceTier ?? this.selectTier(context);
     const modelConfig = this.getModelConfig(context.strategy, tier);
 
-    const byokKey = this.resolveByokKey(modelConfig.provider, byokKeys);
-    const client = this.getClient(context.strategy, modelConfig.provider, byokKey);
-    const usedByokKey = !!byokKey;
+    const resolved = this.resolveByokKey(modelConfig.provider, byokKeys);
+    const viaOpenRouter = resolved?.viaOpenRouter ?? false;
+    const client = this.getClient(context.strategy, modelConfig.provider, resolved?.apiKey, viaOpenRouter);
+    const usedByokKey = !!resolved;
+
+    // Remap model name for OpenRouter (native model IDs → OpenRouter format)
+    const useOpenRouter = viaOpenRouter || (
+      context.strategy === 'global' && !resolved && !this.hasNativeServerKey(modelConfig.provider) && !!this.globalKeys?.openrouter
+    );
+    const modelName = useOpenRouter
+      ? (OPENROUTER_MODEL_MAP[modelConfig.model] ?? modelConfig.model)
+      : modelConfig.model;
 
     const startTime = Date.now();
 
     try {
       const response = await client.chat.completions.create({
-        model: modelConfig.model,
+        model: modelName,
         messages,
         temperature: options?.temperature ?? 0.3,
         max_tokens: options?.maxTokens ?? 4096,
@@ -154,7 +217,7 @@ export class LLMRouter {
 
       logger.info({
         event: 'llm_complete',
-        model: modelConfig.model,
+        model: modelName,
         tier,
         strategy: context.strategy,
         task: context.task,
@@ -163,17 +226,19 @@ export class LLMRouter {
         costKopecks,
         durationMs,
         usedByokKey,
+        viaOpenRouter: useOpenRouter,
       });
 
       return {
         content: response.choices[0]?.message?.content || '',
-        model: modelConfig.model,
+        model: modelName,
         tier,
         inputTokens,
         outputTokens,
         costKopecks,
         durationMs,
         usedByokKey,
+        viaOpenRouter: useOpenRouter,
       };
     } catch (error) {
       const errInfo = error instanceof Error

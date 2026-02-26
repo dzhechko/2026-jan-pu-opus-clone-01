@@ -1,4 +1,4 @@
-export type ByokProvider = 'gemini' | 'openai' | 'anthropic';
+export type ByokProvider = 'gemini' | 'openai' | 'anthropic' | 'openrouter';
 
 export type ByokKeyStatus = 'connected' | 'not_connected' | 'invalid';
 
@@ -42,6 +42,13 @@ export const BYOK_PROVIDERS: Record<ByokProvider, ByokProviderInfo> = {
     description: 'Anthropic -- Claude Haiku (Tier 2 fallback)',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     keyPrefix: 'sk-ant-',
+  },
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    description: 'Универсальный роутер — один ключ для всех Global-моделей (Gemini, Claude, GPT)',
+    helpUrl: 'https://openrouter.ai/keys',
+    keyPrefix: 'sk-or-',
   },
 };
 

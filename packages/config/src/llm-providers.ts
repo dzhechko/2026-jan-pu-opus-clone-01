@@ -1,5 +1,15 @@
 import type { LLMProviderConfig } from '@clipmaker/types';
 
+/** Maps native model IDs to OpenRouter model IDs */
+export const OPENROUTER_MODEL_MAP: Record<string, string> = {
+  'gemini-2.0-flash-lite': 'google/gemini-2.0-flash-lite',
+  'gemini-2.0-flash': 'google/gemini-2.0-flash',
+  'gemini-2.5-pro': 'google/gemini-2.5-pro',
+  'claude-haiku-4.5': 'anthropic/claude-3.5-haiku',
+};
+
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
 export const LLM_PROVIDERS: Record<'ru' | 'global', LLMProviderConfig> = {
   ru: {
     stt: { provider: 'cloudru', model: 'whisper-large-v3', costPerUnit: 0.005 },

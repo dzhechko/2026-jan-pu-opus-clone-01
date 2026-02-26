@@ -48,8 +48,8 @@ const logger = createLogger('worker-llm');
 // --- Router (fail-fast on missing API keys) ---
 
 const cloudruApiKey = process.env.CLOUDRU_API_KEY;
-if (!cloudruApiKey && !process.env.GEMINI_API_KEY) {
-  throw new Error('At least one LLM API key required: CLOUDRU_API_KEY or GEMINI_API_KEY');
+if (!cloudruApiKey && !process.env.GEMINI_API_KEY && !process.env.OPENROUTER_API_KEY) {
+  throw new Error('At least one LLM API key required: CLOUDRU_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY');
 }
 
 const router = new LLMRouter(
@@ -58,6 +58,7 @@ const router = new LLMRouter(
     gemini: process.env.GEMINI_API_KEY,
     anthropic: process.env.ANTHROPIC_API_KEY,
     openai: process.env.OPENAI_API_KEY,
+    openrouter: process.env.OPENROUTER_API_KEY,
   },
 );
 
@@ -95,14 +96,16 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
   // BYOK: Load user's API keys from Redis cache (Global strategy only)
   let byokKeys: ByokKeys | undefined;
   if (strategy === 'global') {
-    const [geminiKey, anthropicKey] = await Promise.all([
+    const [geminiKey, anthropicKey, openrouterKey] = await Promise.all([
       peekByokKey(user.id, 'gemini'),
       peekByokKey(user.id, 'anthropic'),
+      peekByokKey(user.id, 'openrouter'),
     ]);
-    if (geminiKey || anthropicKey) {
+    if (geminiKey || anthropicKey || openrouterKey) {
       byokKeys = {};
       if (geminiKey) byokKeys.gemini = geminiKey;
       if (anthropicKey) byokKeys.anthropic = anthropicKey;
+      if (openrouterKey) byokKeys.openrouter = openrouterKey;
       logger.info({
         event: 'llm_byok_keys_loaded',
         videoId,
