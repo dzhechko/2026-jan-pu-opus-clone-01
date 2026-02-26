@@ -46,6 +46,18 @@ export const userRouter = router({
         },
       });
 
+      // In development, auto-verify email (no SMTP server available)
+      if (process.env.NODE_ENV === 'development') {
+        await ctx.prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true },
+        });
+        console.log(`[DEV] Auto-verified email for ${user.email}`);
+        return {
+          message: 'Регистрация завершена. Можете войти.',
+        };
+      }
+
       // Sign email verification JWT (24h expiry)
       const verificationToken = signVerificationToken(user.id, user.email);
       const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
