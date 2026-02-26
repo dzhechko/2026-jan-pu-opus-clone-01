@@ -39,6 +39,9 @@ const PUBLIC_PATH_PREFIXES: readonly string[] = [
  */
 const SOFT_AUTH_PREFIXES: readonly string[] = [
   '/api/trpc/',
+  '/api/clips/',
+  '/api/videos/',
+  '/api/upload',
 ] as const;
 
 // ---------------------------------------------------------------------------

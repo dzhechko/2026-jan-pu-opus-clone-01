@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { trpc } from '@/lib/trpc/client';
 
 function triggerDownload(href: string, filename: string): void {
   const a = document.createElement('a');
@@ -21,31 +20,23 @@ function safeFilename(title: string | undefined, ext: string): string {
 export function useClipDownload() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const mutationRef = useRef<ReturnType<typeof trpc.clip.download.useMutation>>(undefined);
-
-  const mutation = trpc.clip.download.useMutation();
-  mutationRef.current = mutation;
 
   const download = useCallback(
     async (clipId: string, clipTitle?: string) => {
       try {
         setDownloadingId(clipId);
         setError(null);
-
-        const { downloadUrl } = await mutationRef.current!.mutateAsync({
-          id: clipId,
-        });
-
-        triggerDownload(downloadUrl, safeFilename(clipTitle, 'mp4'));
+        triggerDownload(`/api/clips/${clipId}/file`, safeFilename(clipTitle, 'mp4'));
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Ошибка скачивания';
         setError(message);
       } finally {
-        setDownloadingId(null);
+        // Short delay so button stays disabled during download initiation
+        setTimeout(() => setDownloadingId(null), 2000);
       }
     },
-    [], // stable — uses mutationRef
+    [],
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -65,12 +56,8 @@ export function useDownloadAll() {
     setError(null);
 
     try {
-      // Use direct anchor navigation — browser streams ZIP to disk
-      // without buffering in JS heap. Pre-check with HEAD-like fetch
-      // for error feedback before triggering navigation.
       triggerDownload(`/api/videos/${videoId}/download-all`, 'clips.zip');
     } finally {
-      // Short delay so button stays disabled during download initiation
       setTimeout(() => {
         busyRef.current = false;
         setDownloading(false);
