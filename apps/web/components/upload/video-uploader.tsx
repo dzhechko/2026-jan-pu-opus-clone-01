@@ -91,7 +91,7 @@ function uploadPartXhr(
     xhr.onload = () => {
       cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.getResponseHeader('ETag') ?? '');
+        resolve(xhr.getResponseHeader('ETag') ?? xhr.responseText ?? '');
       } else if (xhr.status === 403) {
         reject(new Error('URL_EXPIRED'));
       } else {
@@ -278,13 +278,16 @@ export function VideoUploader() {
             { 'x-upload-key': result.upload.key },
           );
         } else {
-          // Multipart upload
+          // Multipart upload — all parts go through /api/upload proxy
+          // (Codespace proxy limits body to ~16 MB, so presigned URLs are not used)
           const { partUrls, partSize, uploadId, videoId } = result.upload as {
             partUrls: { partNumber: number; url: string }[];
             partSize: number;
             uploadId: string;
             videoId: string;
           };
+
+          const uploadKey = (result.upload as { key: string }).key;
 
           const blobs = splitFile(file, partSize);
           const completedParts: { partNumber: number; etag: string }[] = [];
@@ -294,17 +297,16 @@ export function VideoUploader() {
             if (abortController.signal.aborted) break;
 
             await Promise.all(
-              batch.map(async ({ partNumber, url: partUrl }) => {
+              batch.map(async ({ partNumber }) => {
                 const blob = blobs[partNumber - 1];
                 if (!blob) return;
 
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
-                    // Reset progress for this part before each attempt
                     partLoaded.set(partNumber, 0);
 
-                    const etag = await uploadPartXhr(
-                      partUrl,
+                    const responseText = await uploadPartXhr(
+                      '/api/upload',
                       blob,
                       (loaded) => {
                         partLoaded.set(partNumber, loaded);
@@ -313,14 +315,26 @@ export function VideoUploader() {
                         updateProgress(totalLoaded, file.size, startTime);
                       },
                       abortController.signal,
+                      {
+                        'x-upload-key': uploadKey,
+                        'x-upload-id': uploadId,
+                        'x-upload-part': String(partNumber),
+                      },
                     );
+                    // Parse etag from JSON response
+                    let etag = '';
+                    try {
+                      const json = JSON.parse(responseText);
+                      etag = json.etag ?? '';
+                    } catch {
+                      etag = responseText;
+                    }
                     completedParts.push({ partNumber, etag });
-                    // Release blob reference after successful upload
                     blobs[partNumber - 1] = null as unknown as Blob;
                     return;
                   } catch (err) {
                     const msg = (err as Error).message;
-                    if (msg === 'URL_EXPIRED' || msg === 'ABORTED' || attempt === 3) throw err;
+                    if (msg === 'ABORTED' || attempt === 3) throw err;
                     await new Promise((r) => setTimeout(r, 1000 * attempt));
                   }
                 }

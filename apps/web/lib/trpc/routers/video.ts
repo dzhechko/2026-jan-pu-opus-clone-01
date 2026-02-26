@@ -16,7 +16,7 @@ import {
 } from '@clipmaker/s3';
 import { createQueue, QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 
-const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
+const MULTIPART_THRESHOLD = 8 * 1024 * 1024; // 8MB — Codespace proxy limits bodies to ~16MB
 const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
 
 const ALLOWED_EXTENSIONS = ['mp4', 'webm', 'mov', 'avi'];

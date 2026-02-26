@@ -15,7 +15,7 @@ export type MultipartUploadInit = {
 };
 
 const MIN_PART_SIZE = 10 * 1024 * 1024; // 10MB (above S3 API min of 5MB for efficiency)
-const MAX_PART_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_PART_SIZE = 14 * 1024 * 1024; // 14MB — must stay under Codespace proxy ~16MB limit
 const PRESIGNED_URL_EXPIRY = 3600;
 
 export function calculatePartSize(fileSize: number): number {
