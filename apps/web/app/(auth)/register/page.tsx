@@ -5,6 +5,8 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { registerSchema } from '@/lib/auth/schemas';
 import { trpc } from '@/lib/trpc/client';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 
 type RegisterFormData = {
   name: string;
@@ -41,7 +43,6 @@ function RegisterForm() {
       setRegistered(true);
     },
     onError: (err) => {
-      // Don't expose raw tRPC errors — show generic message
       if (err.data?.code === 'TOO_MANY_REQUESTS') {
         setServerError('Слишком много попыток. Подождите и попробуйте снова.');
       } else {
@@ -55,7 +56,6 @@ function RegisterForm() {
     setFieldErrors({});
     setServerError('');
 
-    // Reuse shared schema from lib/auth/schemas
     const result = registerSchema.safeParse({
       name,
       email,
@@ -105,60 +105,51 @@ function RegisterForm() {
             />
           </svg>
         </div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">
-          Проверьте почту
+        <h2 className="text-xl font-semibold text-foreground mb-2">
+          Регистрация завершена
         </h2>
-        <p className="text-gray-600 text-sm mb-6">
-          Мы отправили письмо для подтверждения на{' '}
-          <span className="font-medium text-gray-900">{email}</span>.
-          Перейдите по ссылке в письме, чтобы активировать аккаунт.
+        <p className="text-muted-foreground text-sm mb-6">
+          Теперь вы можете войти с email{' '}
+          <span className="font-medium text-foreground">{email}</span>.
         </p>
-        <Link
-          href="/login"
-          className="text-brand-600 font-medium hover:text-brand-700 hover:underline text-sm"
-        >
-          Перейти на страницу входа
-        </Link>
+        <Button asChild variant="outline">
+          <Link href="/login">Перейти на страницу входа</Link>
+        </Button>
       </div>
     );
   }
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-gray-900 text-center mb-6">
+      <h2 className="text-xl font-semibold text-foreground text-center mb-6">
         Создать аккаунт
       </h2>
 
       {serverError && (
-        <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-200">
+        <div className="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm border border-destructive/20">
           {serverError}
         </div>
       )}
 
-      <button
+      <Button
         type="button"
         onClick={handleVkRegister}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-medium text-white transition-colors bg-[#0077FF] hover:bg-[#0066DD]"
+        className="w-full bg-[#0077FF] hover:bg-[#0066DD] text-white"
       >
-        <VkIcon className="w-5 h-5" />
+        <VkIcon className="w-5 h-5 mr-2" />
         Зарегистрироваться через VK
-      </button>
+      </Button>
 
       <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-200" />
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="bg-white px-4 text-gray-400">или</span>
+        <Separator />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="bg-card px-4 text-sm text-muted-foreground">или</span>
         </div>
       </div>
 
       <form onSubmit={validateAndSubmit} className="space-y-4">
         <div>
-          <label
-            htmlFor="name"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="name" className="block text-sm font-medium text-foreground mb-1">
             Имя
           </label>
           <input
@@ -168,20 +159,17 @@ function RegisterForm() {
             onChange={(e) => setName(e.target.value)}
             autoComplete="name"
             placeholder="Ваше имя"
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-colors ${
-              fieldErrors.name ? 'border-red-400' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring outline-none transition-colors ${
+              fieldErrors.name ? 'border-destructive' : 'border-input'
             }`}
           />
           {fieldErrors.name && (
-            <p className="mt-1 text-sm text-red-500">{fieldErrors.name}</p>
+            <p className="mt-1 text-sm text-destructive">{fieldErrors.name}</p>
           )}
         </div>
 
         <div>
-          <label
-            htmlFor="email"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1">
             Email
           </label>
           <input
@@ -191,20 +179,17 @@ function RegisterForm() {
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
             placeholder="you@example.com"
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-colors ${
-              fieldErrors.email ? 'border-red-400' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring outline-none transition-colors ${
+              fieldErrors.email ? 'border-destructive' : 'border-input'
             }`}
           />
           {fieldErrors.email && (
-            <p className="mt-1 text-sm text-red-500">{fieldErrors.email}</p>
+            <p className="mt-1 text-sm text-destructive">{fieldErrors.email}</p>
           )}
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1">
             Пароль
           </label>
           <input
@@ -214,20 +199,17 @@ function RegisterForm() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             placeholder="Минимум 8 символов"
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-colors ${
-              fieldErrors.password ? 'border-red-400' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring outline-none transition-colors ${
+              fieldErrors.password ? 'border-destructive' : 'border-input'
             }`}
           />
           {fieldErrors.password && (
-            <p className="mt-1 text-sm text-red-500">{fieldErrors.password}</p>
+            <p className="mt-1 text-sm text-destructive">{fieldErrors.password}</p>
           )}
         </div>
 
         <div>
-          <label
-            htmlFor="confirmPassword"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground mb-1">
             Подтвердите пароль
           </label>
           <input
@@ -237,34 +219,23 @@ function RegisterForm() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             placeholder="Повторите пароль"
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-colors ${
-              fieldErrors.confirmPassword ? 'border-red-400' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring outline-none transition-colors ${
+              fieldErrors.confirmPassword ? 'border-destructive' : 'border-input'
             }`}
           />
           {fieldErrors.confirmPassword && (
-            <p className="mt-1 text-sm text-red-500">
-              {fieldErrors.confirmPassword}
-            </p>
+            <p className="mt-1 text-sm text-destructive">{fieldErrors.confirmPassword}</p>
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={registerMutation.isPending}
-          className="w-full py-2.5 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {registerMutation.isPending
-            ? 'Регистрация...'
-            : 'Зарегистрироваться'}
-        </button>
+        <Button type="submit" disabled={registerMutation.isPending} className="w-full">
+          {registerMutation.isPending ? 'Регистрация...' : 'Зарегистрироваться'}
+        </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-gray-500">
+      <p className="mt-6 text-center text-sm text-muted-foreground">
         Уже есть аккаунт?{' '}
-        <Link
-          href="/login"
-          className="text-brand-600 font-medium hover:text-brand-700 hover:underline"
-        >
+        <Link href="/login" className="text-primary font-medium hover:underline">
           Войти
         </Link>
       </p>
@@ -274,7 +245,7 @@ function RegisterForm() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="text-center text-gray-400">Загрузка...</div>}>
+    <Suspense fallback={<div className="text-center text-muted-foreground">Загрузка...</div>}>
       <RegisterForm />
     </Suspense>
   );

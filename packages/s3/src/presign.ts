@@ -10,17 +10,22 @@ export type PresignedUploadResult = {
 
 export async function generateUploadUrl(
   key: string,
-  fileSize: number,
+  _fileSize: number,
   contentType: string,
 ): Promise<PresignedUploadResult> {
   const s3 = getS3Client();
   const command = new PutObjectCommand({
     Bucket: getBucket(),
     Key: key,
-    ContentLength: fileSize,
     ContentType: contentType,
+    // Do NOT include ContentLength — browser sets it automatically.
+    // Including it in the signature causes SignatureDoesNotMatch.
   });
-  const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
+  // Disable auto-checksum (CRC32) — browser doesn't send it, causing signature mismatch
+  const url = await getSignedUrl(s3, command, {
+    expiresIn: 3600,
+    unhoistableHeaders: new Set(['x-amz-checksum-crc32']),
+  });
   return { uploadUrl: url, key, expiresIn: 3600 };
 }
 

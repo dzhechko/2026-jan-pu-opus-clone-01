@@ -17,6 +17,9 @@ export function getS3Client(): S3Client {
         secretAccessKey: config.secretAccessKey,
       },
       forcePathStyle: config.forcePathStyle,
+      // Disable auto-checksum for presigned URLs — browser can't send these headers
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
     cachedBucket = config.bucket;
   }

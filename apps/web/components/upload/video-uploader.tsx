@@ -58,6 +58,7 @@ function uploadPartXhr(
   blob: Blob,
   onProgress: (loaded: number) => void,
   abortSignal: AbortSignal,
+  extraHeaders?: Record<string, string>,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (abortSignal.aborted) {
@@ -69,6 +70,12 @@ function uploadPartXhr(
     xhr.open('PUT', url);
     // Dynamic timeout: min 5min, scales with blob size (assumes min 256 bytes/sec)
     xhr.timeout = Math.max(300_000, Math.ceil((blob.size / 256) * 1000));
+
+    if (extraHeaders) {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        xhr.setRequestHeader(key, value);
+      }
+    }
 
     const onAbort = () => xhr.abort();
     abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -262,12 +269,13 @@ export function VideoUploader() {
 
       try {
         if ('uploadUrl' in result.upload) {
-          // Simple upload
+          // Simple upload via server proxy (avoids presigned URL CORS/signature issues)
           await uploadPartXhr(
-            result.upload.uploadUrl,
+            '/api/upload',
             file,
             (loaded) => updateProgress(loaded, file.size, startTime),
             abortController.signal,
+            { 'x-upload-key': result.upload.key },
           );
         } else {
           // Multipart upload
