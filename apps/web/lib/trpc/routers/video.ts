@@ -265,7 +265,17 @@ export const videoRouter = router({
   createFromUrl: protectedProcedure
     .input(
       z.object({
-        url: z.string().url(),
+        url: z.string().url().max(2048).refine(
+          (url) => {
+            try {
+              const parsed = new URL(url);
+              return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch {
+              return false;
+            }
+          },
+          { message: 'Only HTTP and HTTPS URLs are supported' },
+        ),
         title: z.string().min(1).max(255).optional(),
       }),
     )
@@ -299,7 +309,15 @@ export const videoRouter = router({
         },
       });
 
-      // TODO: Add download job to queue
+      // Enqueue download job for the worker to pick up
+      const downloadQueue = createQueue(QUEUE_NAMES.VIDEO_DOWNLOAD);
+      await downloadQueue.add('video-download', {
+        videoId: video.id,
+        url: input.url,
+        userId,
+        strategy: (user.llmProviderPreference as 'ru' | 'global') ?? 'ru',
+      }, DEFAULT_JOB_OPTIONS);
+
       return video;
     }),
 });
