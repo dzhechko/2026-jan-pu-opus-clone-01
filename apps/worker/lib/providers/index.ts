@@ -18,4 +18,9 @@ export function getPlatformProvider(platform: string): PlatformProvider {
 }
 
 export { PlatformProvider } from './base';
-export type { PlatformPublishResult, PlatformStats } from './base';
+export type {
+  PlatformPublishParams,
+  PlatformPublishResult,
+  PlatformStats,
+  TestConnectionResult,
+} from './base';

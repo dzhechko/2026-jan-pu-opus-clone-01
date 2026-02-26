@@ -46,12 +46,17 @@ const worker = new Worker<StatsCollectJobData>(
       accessToken,
     });
 
+    if (!stats) {
+      logger.info({ event: 'stats_not_supported', publicationId, platform });
+      return;
+    }
+
     await prisma.publication.update({
       where: { id: publicationId },
       data: {
         views: stats.views,
-        likes: stats.likes,
-        shares: stats.shares,
+        ...(stats.likes !== null && { likes: stats.likes }),
+        ...(stats.shares !== null && { shares: stats.shares }),
         lastStatsSync: new Date(),
       },
     });
