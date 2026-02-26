@@ -3,13 +3,17 @@ import { ACCESS_TOKEN_MAX_AGE, REFRESH_TOKEN_MAX_AGE, REMEMBER_ME_MAX_AGE } from
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
+/** Detect HTTPS environments (production or Codespace proxy). */
+const USE_SECURE_COOKIES =
+  IS_PRODUCTION || !!process.env.CODESPACES || !!process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
+
 export const ACCESS_TOKEN_COOKIE = 'access_token';
 export const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
-/** Base cookie options: HttpOnly, Secure in production, SameSite=Lax */
+/** Base cookie options: HttpOnly, Secure when HTTPS, SameSite=Lax */
 export const AUTH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: IS_PRODUCTION,
+  secure: USE_SECURE_COOKIES,
   sameSite: 'lax' as const,
 };
 

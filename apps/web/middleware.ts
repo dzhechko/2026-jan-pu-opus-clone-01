@@ -239,9 +239,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const response = attachUserHeaders(request, user);
 
     // Set the fresh access token as an HttpOnly cookie.
+    const useSecureCookies =
+      process.env.NODE_ENV === 'production' ||
+      !!process.env.CODESPACES ||
+      !!process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
+
     response.cookies.set(ACCESS_COOKIE, newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: useSecureCookies,
       sameSite: 'lax',
       path: '/',
       maxAge: ACCESS_TOKEN_MAX_AGE,
