@@ -32,7 +32,7 @@ Read the sparc-prd-manual skill from .claude/skills/sparc-prd-manual/SKILL.md
    - Completion.md, Research_Findings.md, Final_Summary.md
 5. Git commit: `docs(<feature-name>): SPARC planning`
 
-**⏸️ Checkpoint:** Show SPARC summary, ask to proceed to validation.
+**Auto-proceed** to validation (show brief summary before continuing).
 
 ## Phase 2: VALIDATE (requirements-validator, swarm)
 
@@ -62,7 +62,7 @@ Use swarm of agents to validate (parallel via Task tool):
 Save: `docs/features/<feature-name>/sparc/validation-report.md`
 Git commit: `docs(<feature-name>): validation complete, score XX/100`
 
-**⏸️ Checkpoint:** Show validation results, ask to proceed to implementation.
+**Auto-proceed** to implementation (show brief validation results before continuing).
 
 ## Phase 3: IMPLEMENT (swarm + parallel tasks)
 
@@ -84,7 +84,7 @@ When SPARC plan is ready for implementation:
 - Commit after each logical unit: `feat(<feature-name>): <what>`
 - Run tests in parallel with implementation
 
-**⏸️ Checkpoint:** Show implementation summary, ask to proceed to review.
+**Auto-proceed** to review (show brief implementation summary before continuing).
 
 ## Phase 4: REVIEW (brutal-honesty-review, swarm)
 

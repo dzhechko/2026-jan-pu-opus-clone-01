@@ -11,6 +11,10 @@ import {
 } from '@/lib/yookassa';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
 
+const PLAN_ORDER: PlanId[] = ['free', 'start', 'pro', 'business'];
+
+const APP_ORIGIN = process.env.NEXTAUTH_URL ?? '';
+
 export const billingRouter = router({
   /**
    * Get current subscription status (authoritative — reads from DB).
@@ -18,7 +22,19 @@ export const billingRouter = router({
   subscription: protectedProcedure.query(async ({ ctx }) => {
     const user = await ctx.prisma.user.findUniqueOrThrow({
       where: { id: ctx.session.user.id },
-      include: { subscription: true },
+      select: {
+        planId: true,
+        minutesUsed: true,
+        minutesLimit: true,
+        subscription: {
+          select: {
+            status: true,
+            paymentMethod: true,
+            currentPeriodEnd: true,
+            cancelAtPeriodEnd: true,
+          },
+        },
+      },
     });
 
     return {
@@ -40,7 +56,10 @@ export const billingRouter = router({
       z.object({
         planId: z.enum(['start', 'pro', 'business']),
         paymentMethod: z.enum(['card', 'sbp']),
-        returnUrl: z.string().url(),
+        returnUrl: z.string().url().refine(
+          (url) => !APP_ORIGIN || url.startsWith(APP_ORIGIN),
+          'URL должен принадлежать этому домену',
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -56,17 +75,53 @@ export const billingRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Вы уже на этом тарифе' });
       }
 
+      // Prevent downgrade via checkout
+      const currentIdx = PLAN_ORDER.indexOf(user.planId as PlanId);
+      const targetIdx = PLAN_ORDER.indexOf(input.planId);
+      if (targetIdx <= currentIdx) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Понижение тарифа недоступно через оплату' });
+      }
+
+      // Check for existing pending subscription payment
+      const pendingPayment = await ctx.prisma.payment.findFirst({
+        where: { userId, type: 'subscription', status: 'pending' },
+        select: { id: true },
+      });
+      if (pendingPayment) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'У вас есть незавершённый платёж. Дождитесь его завершения или попробуйте позже',
+        });
+      }
+
       const plan = PLAN_CONFIG[input.planId as PlanId];
       if (!plan || plan.price === 0) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Недопустимый тариф' });
       }
 
-      const idempotenceKey = `sub-${userId}-${input.planId}-${Date.now()}`;
+      // Deterministic idempotence key (no Date.now() — prevents double-click double-charge)
+      const today = new Date().toISOString().slice(0, 10);
+      const idempotenceKey = `sub-${userId}-${input.planId}-${today}`;
 
       const confirmation =
         input.paymentMethod === 'sbp'
           ? { type: 'qr' as const }
           : { type: 'redirect' as const, return_url: input.returnUrl };
+
+      // Create local payment record BEFORE calling ЮKassa to avoid webhook race
+      const localPayment = await ctx.prisma.payment.create({
+        data: {
+          userId,
+          externalId: `pending-${idempotenceKey}`,
+          idempotenceKey,
+          type: 'subscription',
+          planId: input.planId,
+          amount: plan.price,
+          status: 'pending',
+          paymentMethod: input.paymentMethod,
+          description: `КлипМейкер: тариф ${input.planId} (1 мес)`,
+        },
+      });
 
       let yooPayment;
       try {
@@ -83,36 +138,38 @@ export const billingRouter = router({
           idempotenceKey,
         );
       } catch {
+        // Clean up local record on ЮKassa failure
+        await ctx.prisma.payment.delete({ where: { id: localPayment.id } }).catch(() => {});
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Платёжная система недоступна. Попробуйте позже',
         });
       }
 
-      await ctx.prisma.payment.create({
-        data: {
-          userId,
-          externalId: yooPayment.id,
-          idempotenceKey,
-          type: 'subscription',
-          planId: input.planId,
-          amount: plan.price,
-          status: 'pending',
-          paymentMethod: input.paymentMethod,
-          description: yooPayment.description,
-        },
+      // Update local record with real ЮKassa external ID
+      await ctx.prisma.payment.update({
+        where: { id: localPayment.id },
+        data: { externalId: yooPayment.id },
       });
+
+      const confirmationUrl = yooPayment.confirmation?.confirmation_url;
+      if (!confirmationUrl) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Платёжная система не вернула ссылку для оплаты',
+        });
+      }
 
       if (input.paymentMethod === 'sbp') {
         return {
           type: 'qr' as const,
-          qrUrl: yooPayment.confirmation?.confirmation_url ?? '',
+          qrUrl: confirmationUrl,
           paymentId: yooPayment.id,
         };
       }
       return {
         type: 'redirect' as const,
-        confirmationUrl: yooPayment.confirmation?.confirmation_url ?? '',
+        confirmationUrl,
         paymentId: yooPayment.id,
       };
     }),
@@ -125,7 +182,10 @@ export const billingRouter = router({
       z.object({
         minutes: z.enum(['30', '60', '120']).transform(Number),
         paymentMethod: z.enum(['card', 'sbp']),
-        returnUrl: z.string().url(),
+        returnUrl: z.string().url().refine(
+          (url) => !APP_ORIGIN || url.startsWith(APP_ORIGIN),
+          'URL должен принадлежать этому домену',
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -138,12 +198,28 @@ export const billingRouter = router({
       });
 
       const amount = input.minutes * EXTRA_MINUTES_PRICE_KOPECKS;
-      const idempotenceKey = `extra-${userId}-${input.minutes}-${Date.now()}`;
+      const today = new Date().toISOString().slice(0, 10);
+      const idempotenceKey = `extra-${userId}-${input.minutes}-${today}`;
 
       const confirmation =
         input.paymentMethod === 'sbp'
           ? { type: 'qr' as const }
           : { type: 'redirect' as const, return_url: input.returnUrl };
+
+      // Create local payment record BEFORE calling ЮKassa
+      const localPayment = await ctx.prisma.payment.create({
+        data: {
+          userId,
+          externalId: `pending-${idempotenceKey}`,
+          idempotenceKey,
+          type: 'extra_minutes',
+          amount,
+          status: 'pending',
+          paymentMethod: input.paymentMethod,
+          description: `КлипМейкер: ${input.minutes} доп. минут`,
+          metadata: { minutes: input.minutes },
+        },
+      });
 
       let yooPayment;
       try {
@@ -159,36 +235,36 @@ export const billingRouter = router({
           idempotenceKey,
         );
       } catch {
+        await ctx.prisma.payment.delete({ where: { id: localPayment.id } }).catch(() => {});
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Платёжная система недоступна. Попробуйте позже',
         });
       }
 
-      await ctx.prisma.payment.create({
-        data: {
-          userId,
-          externalId: yooPayment.id,
-          idempotenceKey,
-          type: 'extra_minutes',
-          amount,
-          status: 'pending',
-          paymentMethod: input.paymentMethod,
-          description: yooPayment.description,
-          metadata: { minutes: input.minutes },
-        },
+      await ctx.prisma.payment.update({
+        where: { id: localPayment.id },
+        data: { externalId: yooPayment.id },
       });
+
+      const confirmationUrl = yooPayment.confirmation?.confirmation_url;
+      if (!confirmationUrl) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Платёжная система не вернула ссылку для оплаты',
+        });
+      }
 
       if (input.paymentMethod === 'sbp') {
         return {
           type: 'qr' as const,
-          qrUrl: yooPayment.confirmation?.confirmation_url ?? '',
+          qrUrl: confirmationUrl,
           paymentId: yooPayment.id,
         };
       }
       return {
         type: 'redirect' as const,
-        confirmationUrl: yooPayment.confirmation?.confirmation_url ?? '',
+        confirmationUrl,
         paymentId: yooPayment.id,
       };
     }),
@@ -254,12 +330,12 @@ export const billingRouter = router({
   checkPaymentStatus: protectedProcedure
     .input(z.object({ paymentId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const payment = await ctx.prisma.payment.findFirst({
-        where: { externalId: input.paymentId, userId: ctx.session.user.id },
-        select: { status: true },
+      const payment = await ctx.prisma.payment.findUnique({
+        where: { externalId: input.paymentId },
+        select: { status: true, userId: true },
       });
 
-      if (!payment) {
+      if (!payment || payment.userId !== ctx.session.user.id) {
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
 

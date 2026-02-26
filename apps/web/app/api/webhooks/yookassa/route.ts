@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@clipmaker/db';
 import { PLAN_CONFIG } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
-import { isYookassaIp, formatRubles } from '@/lib/yookassa';
+import { isYookassaIp } from '@/lib/yookassa';
 
 // ---------------------------------------------------------------------------
 // Webhook Payload Schema (Zod)
@@ -27,22 +27,57 @@ const WebhookSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Parse rubles string to kopecks without floating-point arithmetic. */
+function parseRublesToKopecks(value: string): number {
+  const [rubles, kopecks = '00'] = value.split('.');
+  return parseInt(rubles!, 10) * 100 + parseInt(kopecks.padEnd(2, '0').slice(0, 2), 10);
+}
+
+/** Add 30 days (avoids JS setMonth overflow for months like Jan 31). */
+function addOneMonth(date: Date): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + 30);
+  return result;
+}
+
+function isValidPlanId(value: string | null): value is PlanId {
+  return value !== null && value in PLAN_CONFIG;
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/webhooks/yookassa
 // ---------------------------------------------------------------------------
 
+const MAX_BODY_SIZE = 65536;
+
 export async function POST(request: NextRequest) {
-  // 1. Verify source IP
-  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  // 1. Verify source IP (prefer x-real-ip set by nginx, fallback to x-forwarded-for)
+  const clientIp =
+    request.headers.get('x-real-ip')?.trim() ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   if (!isYookassaIp(clientIp)) {
     console.warn('Webhook IP rejected:', clientIp);
     return new NextResponse('Forbidden', { status: 403 });
   }
 
-  // 2. Parse and validate body
-  const raw = await request.json();
+  // 2. Parse and validate body (with size limit)
+  const rawText = await request.text();
+  if (rawText.length > MAX_BODY_SIZE) {
+    return new NextResponse('Payload too large', { status: 413 });
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(rawText);
+  } catch {
+    return new NextResponse('OK', { status: 200 });
+  }
+
   const parsed = WebhookSchema.safeParse(raw);
   if (!parsed.success) {
-    // Don't trigger ЮKassa retries for malformed payloads
     return new NextResponse('OK', { status: 200 });
   }
 
@@ -57,14 +92,15 @@ export async function POST(request: NextRequest) {
     return new NextResponse('OK', { status: 200 });
   }
 
-  // 4. Idempotency check
-  if (existingPayment.status === 'succeeded' && event === 'payment.succeeded') {
+  // 4. Idempotency: reject events on terminal-state payments
+  const terminalStatuses = ['succeeded', 'cancelled', 'refunded'];
+  if (terminalStatuses.includes(existingPayment.status)) {
     return new NextResponse('OK', { status: 200 });
   }
 
-  // 5. Amount validation (security)
+  // 5. Amount + currency validation (security)
   if (event === 'payment.succeeded') {
-    const webhookAmount = Math.round(parseFloat(paymentData.amount.value) * 100);
+    const webhookAmount = parseRublesToKopecks(paymentData.amount.value);
     if (webhookAmount !== existingPayment.amount) {
       console.error('Amount mismatch', {
         paymentId: existingPayment.id,
@@ -73,9 +109,16 @@ export async function POST(request: NextRequest) {
       });
       return new NextResponse('OK', { status: 200 });
     }
+    if (paymentData.amount.currency !== 'RUB') {
+      console.error('Currency mismatch', {
+        paymentId: existingPayment.id,
+        currency: paymentData.amount.currency,
+      });
+      return new NextResponse('OK', { status: 200 });
+    }
   }
 
-  // 6. Handle event
+  // 6. Handle event — return 500 for transient errors so ЮKassa retries
   try {
     switch (event) {
       case 'payment.succeeded':
@@ -90,7 +133,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error('Webhook processing error:', err);
-    // Still return 200 to prevent infinite retries
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
 
   return new NextResponse('OK', { status: 200 });
@@ -117,8 +160,7 @@ async function handlePaymentSucceeded(
   yooData: PaymentObject,
 ) {
   const now = new Date();
-  const periodEnd = new Date(now);
-  periodEnd.setMonth(periodEnd.getMonth() + 1);
+  const periodEnd = addOneMonth(now);
 
   await prisma.$transaction(async (tx) => {
     // Update payment status
@@ -131,8 +173,8 @@ async function handlePaymentSucceeded(
       },
     });
 
-    if (payment.type === 'subscription' && payment.planId) {
-      const planId = payment.planId as PlanId;
+    if (payment.type === 'subscription' && isValidPlanId(payment.planId)) {
+      const planId = payment.planId;
       const planConfig = PLAN_CONFIG[planId];
 
       // Upsert subscription
@@ -193,8 +235,35 @@ async function handlePaymentCancelled(payment: PaymentRecord) {
 }
 
 async function handleRefund(payment: PaymentRecord) {
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: { status: 'refunded' },
+  await prisma.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: 'refunded' },
+    });
+
+    if (payment.type === 'subscription' && isValidPlanId(payment.planId)) {
+      // Downgrade user to free and expire subscription
+      await tx.subscription.updateMany({
+        where: { userId: payment.userId, status: 'active' },
+        data: { status: 'expired', statusChangedAt: new Date() },
+      });
+      await tx.user.update({
+        where: { id: payment.userId },
+        data: {
+          planId: 'free',
+          minutesLimit: PLAN_CONFIG.free.minutesLimit,
+          minutesUsed: 0,
+        },
+      });
+    } else if (payment.type === 'extra_minutes') {
+      const meta = payment.metadata as { minutes?: number } | null;
+      const minutes = meta?.minutes ?? 0;
+      if (minutes > 0) {
+        await tx.user.update({
+          where: { id: payment.userId },
+          data: { minutesLimit: { decrement: minutes } },
+        });
+      }
+    }
   });
 }

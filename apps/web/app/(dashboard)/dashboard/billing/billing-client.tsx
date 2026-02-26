@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { trpc } from '@/lib/trpc/client';
-import { PLAN_CONFIG, PLAN_DISPLAY_NAMES, EXTRA_MINUTES_PRICE_KOPECKS } from '@clipmaker/types';
+import { PLAN_CONFIG, PLAN_DISPLAY_NAMES, EXTRA_MINUTES_PRICE_KOPECKS, UNLIMITED_MINUTES } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
 
 type BillingClientProps = {
@@ -10,6 +10,9 @@ type BillingClientProps = {
 };
 
 const PLAN_ORDER: PlanId[] = ['free', 'start', 'pro', 'business'];
+
+/** Max SBP QR polling duration: 10 minutes. */
+const SBP_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 function formatPrice(kopecks: number): string {
   if (kopecks === 0) return '0₽';
@@ -56,7 +59,7 @@ function PlanComparisonTable({
             </div>
 
             <ul className="space-y-2 text-sm text-gray-600 mb-6">
-              <li>{plan.minutesLimit >= 99999 ? '∞' : plan.minutesLimit} мин/мес</li>
+              <li>{plan.minutesLimit >= UNLIMITED_MINUTES ? '∞' : plan.minutesLimit} мин/мес</li>
               <li>До {plan.maxClips} клипов/видео</li>
               <li>{plan.watermark ? 'С водяным знаком' : 'Без водяного знака'}</li>
               <li>Хранение: {plan.storageDays} дн.</li>
@@ -184,6 +187,8 @@ function CheckoutModal({
   const [method, setMethod] = useState<'card' | 'sbp'>('card');
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  const hasRedirected = useRef(false);
+  const pollStartTime = useRef<number>(0);
 
   const checkoutMutation = trpc.billing.checkout.useMutation();
 
@@ -191,14 +196,25 @@ function CheckoutModal({
     { paymentId: paymentId! },
     {
       enabled: !!paymentId,
-      refetchInterval: 3000,
+      refetchInterval: (query) => {
+        // Stop polling on terminal status
+        const status = query.state.data?.status;
+        if (status === 'succeeded' || status === 'cancelled') return false;
+        // Stop polling after timeout
+        if (Date.now() - pollStartTime.current > SBP_POLL_TIMEOUT_MS) return false;
+        return 3000;
+      },
+      refetchIntervalInBackground: false,
     },
   );
 
-  // Close modal when SBP payment succeeds
-  if (statusQuery.data?.status === 'succeeded') {
-    window.location.reload();
-  }
+  // Redirect on SBP payment success (in useEffect, not during render)
+  useEffect(() => {
+    if (statusQuery.data?.status === 'succeeded' && !hasRedirected.current) {
+      hasRedirected.current = true;
+      window.location.href = '/dashboard/billing?status=success';
+    }
+  }, [statusQuery.data?.status]);
 
   const handleCheckout = useCallback(async () => {
     const result = await checkoutMutation.mutateAsync({
@@ -212,10 +228,14 @@ function CheckoutModal({
     } else {
       setQrUrl(result.qrUrl);
       setPaymentId(result.paymentId);
+      pollStartTime.current = Date.now();
     }
   }, [planId, method, checkoutMutation]);
 
   const plan = PLAN_CONFIG[planId];
+
+  const isTimedOut = pollStartTime.current > 0 &&
+    Date.now() - pollStartTime.current > SBP_POLL_TIMEOUT_MS;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" aria-modal="true">
@@ -278,14 +298,22 @@ function CheckoutModal({
           </>
         ) : (
           <div className="text-center">
-            <p className="text-sm text-gray-600 mb-4">
-              Отсканируйте QR-код в приложении банка
-            </p>
-            <div className="bg-gray-100 rounded-lg p-4 mb-4">
-              <img src={qrUrl} alt="QR-код для оплаты через СБП" className="mx-auto max-w-48" />
-            </div>
-            {statusQuery.isFetching && (
-              <p className="text-sm text-gray-500">Ожидаем подтверждение...</p>
+            {isTimedOut ? (
+              <p className="text-sm text-red-600 mb-4">
+                Время ожидания истекло. Закройте окно и попробуйте снова.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Отсканируйте QR-код в приложении банка
+                </p>
+                <div className="bg-gray-100 rounded-lg p-4 mb-4">
+                  <img src={qrUrl} alt="QR-код для оплаты через СБП" className="mx-auto max-w-48" />
+                </div>
+                {statusQuery.isFetching && (
+                  <p className="text-sm text-gray-500">Ожидаем подтверждение...</p>
+                )}
+              </>
             )}
           </div>
         )}

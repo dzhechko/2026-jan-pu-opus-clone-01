@@ -2,13 +2,13 @@ import { Worker, type Job } from 'bullmq';
 import { prisma } from '@clipmaker/db';
 import { PLAN_CONFIG } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
+import { QUEUE_NAMES } from '@clipmaker/queue';
 import { createLogger } from '../lib/logger';
 import { getRedisConnection } from '../lib/redis';
 
 const logger = createLogger('billing-cron');
 
 const GRACE_PERIOD_DAYS = 7;
-const RETRY_AFTER_DAYS = 3;
 const BATCH_SIZE = 100;
 
 // ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ const BATCH_SIZE = 100;
 const connection = getRedisConnection();
 
 const worker = new Worker(
-  'billing-cron',
+  QUEUE_NAMES.BILLING_CRON,
   async (job: Job) => {
     logger.info({ event: 'billing_cron_start', jobId: job.id });
     await billingPeriodReset();
@@ -46,7 +46,6 @@ async function billingPeriodReset() {
         currentPeriodEnd: { lte: now },
         status: { in: ['active', 'past_due'] },
       },
-      include: { user: true },
       take: BATCH_SIZE,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { id: 'asc' },
@@ -73,12 +72,12 @@ async function billingPeriodReset() {
   logger.info({ event: 'billing_cron_summary', processed });
 }
 
-type SubscriptionWithUser = Awaited<
-  ReturnType<typeof prisma.subscription.findMany<{ include: { user: true } }>>
+type SubscriptionRecord = Awaited<
+  ReturnType<typeof prisma.subscription.findMany>
 >[number];
 
 async function processExpiredSubscription(
-  sub: SubscriptionWithUser,
+  sub: SubscriptionRecord,
   now: Date,
 ) {
   // Case 1: User cancelled — downgrade to free
@@ -130,7 +129,7 @@ async function processExpiredSubscription(
   logger.info({ event: 'subscription_renewal_pending', userId: sub.userId });
 }
 
-async function downgradeToFree(sub: SubscriptionWithUser, now: Date) {
+async function downgradeToFree(sub: SubscriptionRecord, now: Date) {
   await prisma.$transaction([
     prisma.subscription.update({
       where: { id: sub.id },

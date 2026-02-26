@@ -16,6 +16,10 @@ export type Plan = {
   llmTierMax: number;
 };
 
+/**
+ * Extended plan metadata (UI features, team seats, LLM tiers).
+ * Prices and core limits MUST match PLAN_CONFIG in billing.ts (single source of truth for billing).
+ */
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: 'free',
@@ -42,9 +46,9 @@ export const PLANS: Record<PlanId, Plan> = {
   pro: {
     id: 'pro',
     name: 'Pro',
-    priceMonthly: 199000,
-    minutesPerMonth: 300,
-    maxClipsPerVideo: 999,
+    priceMonthly: 299000,
+    minutesPerMonth: 1000,
+    maxClipsPerVideo: 100,
     watermark: false,
     autoPostPlatforms: ['vk', 'rutube', 'dzen', 'telegram'],
     maxTeamSeats: 3,
@@ -53,9 +57,9 @@ export const PLANS: Record<PlanId, Plan> = {
   business: {
     id: 'business',
     name: 'Business',
-    priceMonthly: 499000,
-    minutesPerMonth: 1000,
-    maxClipsPerVideo: 999,
+    priceMonthly: 999000,
+    minutesPerMonth: 99999,
+    maxClipsPerVideo: 100,
     watermark: false,
     autoPostPlatforms: ['vk', 'rutube', 'dzen', 'telegram'],
     maxTeamSeats: 10,
