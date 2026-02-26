@@ -154,6 +154,8 @@ export const userRouter = router({
     .input(
       z.object({
         provider: z.enum(['gemini', 'openai', 'anthropic']),
+        // SECURITY: Key is sent via tRPC body (encrypted by TLS in transit).
+        // Never log the input of this mutation. Never include in error reports.
         apiKey: z.string().min(10).max(256),
       }),
     )
@@ -171,9 +173,13 @@ export const userRouter = router({
       try {
         switch (provider) {
           case 'gemini': {
+            // Use header-based auth instead of URL query param to avoid key leakage in logs
             const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-              { signal: AbortSignal.timeout(10_000) },
+              'https://generativelanguage.googleapis.com/v1beta/models',
+              {
+                headers: { 'x-goog-api-key': apiKey },
+                signal: AbortSignal.timeout(10_000),
+              },
             );
             if (!res.ok) {
               return { valid: false, error: 'Недействительный ключ Gemini' };
@@ -218,7 +224,7 @@ export const userRouter = router({
             return { valid: false, error: 'Неизвестный провайдер' };
         }
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        if (error instanceof Error && error.name === 'AbortError') {
           return { valid: false, error: 'Таймаут. Попробуйте позже' };
         }
         return { valid: false, error: 'Ошибка сети. Проверьте подключение' };

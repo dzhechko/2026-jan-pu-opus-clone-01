@@ -24,6 +24,7 @@ const AUTO_LOCK_MS = 30 * 60 * 1000; // 30 minutes
 let masterKey: CryptoKey | null = null;
 let autoLockTimerId: ReturnType<typeof setTimeout> | null = null;
 let onLockCallback: (() => void) | null = null;
+let activityListenersAttached = false;
 
 // --- IndexedDB Helpers ---
 
@@ -138,6 +139,10 @@ function resetAutoLockTimer(): void {
 }
 
 function setupActivityListeners(): void {
+  // Prevent duplicate listeners on repeated unlock calls
+  if (activityListenersAttached) return;
+  activityListenersAttached = true;
+
   const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
   const handler = () => {
     if (masterKey !== null) {
