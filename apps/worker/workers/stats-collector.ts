@@ -3,6 +3,7 @@ import type { StatsCollectJobData } from '@clipmaker/types';
 import { QUEUE_NAMES } from '@clipmaker/queue';
 import { getRedisConnection } from '@clipmaker/queue/src/queues';
 import { prisma } from '@clipmaker/db';
+import { decryptToken } from '@clipmaker/crypto';
 import { getPlatformProvider } from '../lib/providers';
 import { createLogger } from '../lib/logger';
 
@@ -11,36 +12,49 @@ const logger = createLogger('worker-stats');
 const worker = new Worker<StatsCollectJobData>(
   QUEUE_NAMES.STATS_COLLECT,
   async (job) => {
-    const { publicationId, platform, platformPostId } = job.data;
+    const { publicationId, platform, platformPostId, connectionId } = job.data;
 
     logger.info({ event: 'stats_collect_start', publicationId, platform });
 
+    // Fetch publication to verify it still exists and is published
     const publication = await prisma.publication.findUnique({
       where: { id: publicationId },
-      include: {
-        clip: {
-          include: {
-            user: {
-              include: {
-                platformConnections: {
-                  where: { platform: platform as 'vk' | 'rutube' | 'dzen' | 'telegram' },
-                },
-              },
-            },
-          },
-        },
-      },
     });
 
-    if (!publication?.clip?.user?.platformConnections?.[0]) {
-      logger.warn({ event: 'stats_no_connection', publicationId, platform });
+    if (!publication) {
+      logger.warn({ event: 'stats_publication_not_found', publicationId });
       return;
     }
 
-    const accessToken = publication.clip.user.platformConnections[0].accessTokenEncrypted;
+    if (publication.status !== 'published') {
+      logger.info({ event: 'stats_skip_not_published', publicationId, status: publication.status });
+      return;
+    }
+
+    // Fetch PlatformConnection by connectionId
+    const connection = await prisma.platformConnection.findUnique({
+      where: { id: connectionId },
+    });
+
+    if (!connection) {
+      logger.warn({ event: 'stats_no_connection', publicationId, platform, connectionId });
+      return;
+    }
+
+    // Decrypt the access token
+    const tokenSecret = process.env.PLATFORM_TOKEN_SECRET!;
+    let accessToken: string;
+    try {
+      accessToken = decryptToken(connection.accessTokenEncrypted, tokenSecret);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error({ event: 'stats_decrypt_failed', publicationId, connectionId, error: message });
+      return;
+    }
+
     const provider = getPlatformProvider(platform);
 
-    // TODO: Decrypt token
+    // getStats may return null (e.g., Telegram doesn't support stats)
     const stats = await provider.getStats({
       platformPostId,
       accessToken,
@@ -51,12 +65,13 @@ const worker = new Worker<StatsCollectJobData>(
       return;
     }
 
+    // Handle nullable likes/shares — only update if non-null
     await prisma.publication.update({
       where: { id: publicationId },
       data: {
         views: stats.views,
-        ...(stats.likes !== null && { likes: stats.likes }),
-        ...(stats.shares !== null && { shares: stats.shares }),
+        ...(stats.likes !== null && stats.likes !== undefined ? { likes: stats.likes } : {}),
+        ...(stats.shares !== null && stats.shares !== undefined ? { shares: stats.shares } : {}),
         lastStatsSync: new Date(),
       },
     });
