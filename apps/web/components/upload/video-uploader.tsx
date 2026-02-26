@@ -204,18 +204,21 @@ export function VideoUploader() {
 
   const handleFile = useCallback(
     async (file: File) => {
+      console.log('[upload] handleFile called', { name: file.name, size: file.size, type: file.type, state: uploadStateRef.current });
       // Guard against double uploads
       if (
         uploadStateRef.current !== 'idle' &&
         uploadStateRef.current !== 'error' &&
         uploadStateRef.current !== 'done'
       ) {
+        console.log('[upload] blocked by guard, state:', uploadStateRef.current);
         return;
       }
 
       setError('');
       // Allow empty file.type (happens on some Linux/browser combos) — magic bytes check handles it
       if (file.type && !ALLOWED_TYPES.includes(file.type)) {
+        console.log('[upload] rejected: unsupported type', file.type);
         setError('Формат не поддерживается. Используйте MP4, WebM, MOV или AVI');
         return;
       }
@@ -230,15 +233,18 @@ export function VideoUploader() {
 
       // Client-side magic bytes pre-check
       setUploadStateSync('validating');
+      console.log('[upload] validating magic bytes...');
       try {
         const header = await readFileHeader(file);
         if (!validateClientMagicBytes(header)) {
+          console.log('[upload] magic bytes failed');
           setError('Неподдерживаемый формат файла');
           setUploadStateSync('idle');
           return;
         }
+        console.log('[upload] magic bytes OK');
       } catch {
-        // If we can't read the header, let server-side validation handle it
+        console.log('[upload] magic bytes read error, continuing');
       }
 
       // Create video record + get presigned URL(s)
@@ -248,12 +254,15 @@ export function VideoUploader() {
 
       let result;
       try {
+        console.log('[upload] calling createFromUpload...');
         result = await createMutationRef.current.mutateAsync({
           title: file.name.replace(/\.[^.]+$/, ''),
           fileName: file.name,
           fileSize: file.size,
         });
+        console.log('[upload] createFromUpload result:', JSON.stringify(result));
       } catch (err) {
+        console.error('[upload] createFromUpload error:', err);
         setError((err as Error).message);
         setUploadStateSync('error');
         return;
