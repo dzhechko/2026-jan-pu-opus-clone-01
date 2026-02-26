@@ -86,7 +86,7 @@ AI SaaS, превращающий вебинары в промо-шортсы с
 | Command | Description |
 |---------|------------|
 | `/start` | Bootstrap entire project from docs (one command) |
-| `/plan [feature]` | Plan feature implementation |
+| `/plan [feature]` | Plan & save to `docs/plans/` (lightweight) |
 | `/test [scope]` | Generate and run tests |
 | `/deploy [env]` | Deploy to VPS |
 | `/feature [name]` | Full feature lifecycle (4 phases) |
@@ -104,12 +104,20 @@ New features follow the 4-phase lifecycle: `/feature [name]`
 3. **IMPLEMENT** — parallel agents from validated docs
 4. **REVIEW** — brutal-honesty-review swarm → fix all criticals
 
+For smaller changes use `/plan [name]` — lightweight plan saved to `docs/plans/`.
+
+| Scope | Command | Output |
+|-------|---------|--------|
+| Major feature (US-XX) | `/feature` | `docs/features/<name>/sparc/` (10 files) |
+| Small feature, refactor, hotfix | `/plan` | `docs/plans/<name>-<date>.md` (1 file) |
+
 Available lifecycle skills in `.claude/skills/`:
 - `sparc-prd-manual` (+ explore, goap-research, problem-solver-enhanced)
 - `requirements-validator`
 - `brutal-honesty-review`
 
 ## Resources
+- [Plans](docs/plans/) — Lightweight implementation plans (`/plan`)
 - [PRD](docs/PRD.md) — What we're building
 - [Architecture](docs/Architecture.md) — How we're building
 - [Specification](docs/Specification.md) — Detailed requirements (15 user stories)

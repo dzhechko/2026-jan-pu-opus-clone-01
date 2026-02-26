@@ -67,7 +67,20 @@ docs/features/
 └── ...
 ```
 
-## When to Skip Phases
+## When to Use `/plan` vs `/feature`
+
+| Scenario | Command | Output |
+|----------|---------|--------|
+| New major feature (US-XX) | `/feature` | `docs/features/<name>/sparc/` (full SPARC) |
+| Small feature (1-5 files) | `/plan` | `docs/plans/<name>-<date>.md` (1 file) |
+| Hotfix / bugfix | `/plan` | Lightweight plan, quick reference |
+| Config / infra change | `/plan` | Track what changed and why |
+| Refactoring | `/plan` | Document scope before changes |
+| Dependency update | `/plan` | Document breaking changes |
+
+`/plan` saves a single markdown file to `docs/plans/` with context, file changes, and verification steps. No SPARC phases, no validation swarm, no review swarm.
+
+## When to Skip Phases (within /feature)
 
 | Scenario | Skip | Justification |
 |----------|------|---------------|
