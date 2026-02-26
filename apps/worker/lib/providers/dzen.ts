@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { openAsBlob } from 'node:fs';
 import { PlatformProvider } from './base';
 import type {
   PlatformPublishParams,
@@ -102,8 +103,8 @@ export class DzenProvider extends PlatformProvider {
     // Step 2: Upload file to the upload URL
     logger.info({ event: 'dzen_upload_start', fileSize: stat.size });
 
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const fileBlob = new Blob([fileBuffer]);
+    // Stream file from disk (critical for Dzen's 4GB limit — avoids OOM)
+    const fileBlob = await openAsBlob(filePath);
 
     const uploadForm = new FormData();
     uploadForm.append('file', fileBlob, 'video.mp4');

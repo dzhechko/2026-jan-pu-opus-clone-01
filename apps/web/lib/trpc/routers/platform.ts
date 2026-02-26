@@ -6,9 +6,8 @@ import { PLANS } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
 import { encryptToken, decryptToken } from '@clipmaker/crypto';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
-import { getRedisConnection } from '@clipmaker/queue/src/queues';
 import { createQueue, QUEUE_NAMES } from '@clipmaker/queue';
-import Redis from 'ioredis';
+import { getOAuthRedis } from '@/lib/redis';
 
 const PLATFORM_ENUM = z.enum(['vk', 'rutube', 'dzen', 'telegram']);
 type Platform = z.infer<typeof PLATFORM_ENUM>;
@@ -17,6 +16,7 @@ const OAUTH_PLATFORMS: Platform[] = ['vk', 'dzen'];
 const TOKEN_PLATFORMS: Platform[] = ['rutube', 'telegram'];
 
 const OAUTH_STATE_TTL = 300; // 5 minutes
+const FETCH_TIMEOUT = 15_000; // 15 seconds
 
 function getTokenSecret(): string {
   const secret = process.env.PLATFORM_TOKEN_SECRET;
@@ -29,28 +29,13 @@ function getTokenSecret(): string {
   return secret;
 }
 
-let redisClient: Redis | null = null;
-
-function getRedis(): Redis {
-  if (!redisClient) {
-    const conn = getRedisConnection();
-    redisClient = new Redis({
-      host: conn.host,
-      port: conn.port,
-      password: conn.password,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
-  }
-  return redisClient;
-}
-
 /**
  * Validate a Rutube token by calling the Rutube API.
  */
 async function validateRutubeToken(token: string): Promise<string> {
   const res = await fetch('https://rutube.ru/api/video/?mine=true&limit=1', {
     headers: { Authorization: `Token ${token}` },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
 
   if (!res.ok) {
@@ -70,7 +55,9 @@ async function validateTelegramToken(
   token: string,
   channelId?: string,
 ): Promise<string> {
-  const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
+  });
   if (!meRes.ok) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
@@ -92,6 +79,7 @@ async function validateTelegramToken(
   if (channelId) {
     const chatRes = await fetch(
       `https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(channelId)}`,
+      { signal: AbortSignal.timeout(FETCH_TIMEOUT) },
     );
     if (!chatRes.ok) {
       throw new TRPCError({
@@ -150,7 +138,7 @@ export const platformRouter = router({
       // OAuth platforms: VK, Dzen
       if (OAUTH_PLATFORMS.includes(input.platform)) {
         const state = randomUUID();
-        const redis = getRedis();
+        const redis = getOAuthRedis();
         await redis.set(
           `oauth:${input.platform}:${state}`,
           userId,
@@ -319,7 +307,7 @@ export const platformRouter = router({
         try {
           const publishQueue = createQueue(QUEUE_NAMES.PUBLISH!);
           for (const pubId of pubIds) {
-            const job = await publishQueue.getJob(pubId);
+            const job = await publishQueue.getJob(`pub-${pubId}`);
             if (job) {
               await job.remove();
             }
@@ -375,6 +363,7 @@ export const platformRouter = router({
                 access_token: token,
                 v: '5.199',
               }),
+              signal: AbortSignal.timeout(FETCH_TIMEOUT),
             },
           );
           const data = (await res.json()) as {
@@ -403,7 +392,10 @@ export const platformRouter = router({
         if (input.platform === 'rutube') {
           const res = await fetch(
             'https://rutube.ru/api/video/?mine=true&limit=1',
-            { headers: { Authorization: `Token ${token}` } },
+            {
+              headers: { Authorization: `Token ${token}` },
+              signal: AbortSignal.timeout(FETCH_TIMEOUT),
+            },
           );
 
           if (!res.ok) {
@@ -420,7 +412,10 @@ export const platformRouter = router({
         if (input.platform === 'dzen') {
           const res = await fetch(
             'https://zen.yandex.ru/media-api/v3/publisher',
-            { headers: { Authorization: `OAuth ${token}` } },
+            {
+              headers: { Authorization: `OAuth ${token}` },
+              signal: AbortSignal.timeout(FETCH_TIMEOUT),
+            },
           );
 
           if (!res.ok) {
@@ -443,6 +438,7 @@ export const platformRouter = router({
         if (input.platform === 'telegram') {
           const res = await fetch(
             `https://api.telegram.org/bot${token}/getMe`,
+            { signal: AbortSignal.timeout(FETCH_TIMEOUT) },
           );
           const data = (await res.json()) as {
             ok: boolean;

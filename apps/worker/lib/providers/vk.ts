@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { openAsBlob } from 'node:fs';
 import { PlatformProvider } from './base';
 import type {
   PlatformPublishParams,
@@ -125,8 +126,8 @@ export class VKProvider extends PlatformProvider {
     // Step 2: Upload file to the returned upload_url
     logger.info({ event: 'vk_upload_start', fileSize: stat.size });
 
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const fileBlob = new Blob([fileBuffer]);
+    // Stream file from disk (avoids loading entire file into memory)
+    const fileBlob = await openAsBlob(filePath);
 
     const uploadForm = new FormData();
     uploadForm.append('video_file', fileBlob, 'video.mp4');

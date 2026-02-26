@@ -1,5 +1,6 @@
 import { Worker } from 'bullmq';
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { PublishJobData } from '@clipmaker/types';
 import { QUEUE_NAMES } from '@clipmaker/queue';
 import { getRedisConnection } from '@clipmaker/queue/src/queues';
@@ -9,6 +10,23 @@ import { getPlatformProvider } from '../lib/providers';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('worker-publish');
+
+// Validate required env vars at startup
+if (!process.env.PLATFORM_TOKEN_SECRET) {
+  logger.error({ event: 'publish_missing_token_secret' });
+  throw new Error('PLATFORM_TOKEN_SECRET environment variable is required');
+}
+
+/** Allowed base directories for clip files (prevent path traversal) */
+const ALLOWED_FILE_BASES = ['/data/clips', '/tmp/clips', '/app/data'];
+
+function validateFilePath(filePath: string): void {
+  const resolved = path.resolve(filePath);
+  const isAllowed = ALLOWED_FILE_BASES.some((base) => resolved.startsWith(base));
+  if (!isAllowed) {
+    throw new Error(`File path '${resolved}' is outside allowed directories`);
+  }
+}
 
 /**
  * Attempts to refresh the Dzen (Yandex OAuth) access token using the stored refresh token.
@@ -51,6 +69,7 @@ async function tryRefreshToken(connectionId: string, platform: string): Promise<
         client_id: clientId,
         client_secret: clientSecret,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -154,8 +173,22 @@ const worker = new Worker<PublishJobData>(
       return;
     }
 
-    // Step 5: Validate file exists
-    if (!fs.existsSync(filePath)) {
+    // Step 5: Validate file path (prevent path traversal) and check existence
+    try {
+      validateFilePath(filePath);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error({ event: 'publish_path_validation_failed', publicationId, error: msg });
+      await prisma.publication.update({
+        where: { id: publicationId },
+        data: { status: 'failed', errorMessage: 'Недопустимый путь к файлу' },
+      });
+      return;
+    }
+
+    try {
+      await fs.access(filePath);
+    } catch {
       logger.error({ event: 'publish_file_missing', publicationId, filePath });
       await prisma.publication.update({
         where: { id: publicationId },
@@ -177,9 +210,9 @@ const worker = new Worker<PublishJobData>(
         metadata,
       });
 
-      // Step 7: Success — update publication
-      await prisma.publication.update({
-        where: { id: publicationId },
+      // Step 7: Success — update publication (optimistic concurrency: only if still 'publishing')
+      const updated = await prisma.publication.updateMany({
+        where: { id: publicationId, status: 'publishing' },
         data: {
           status: 'published',
           platformPostId: result.platformPostId,
@@ -187,6 +220,11 @@ const worker = new Worker<PublishJobData>(
           publishedAt: new Date(),
         },
       });
+
+      if (updated.count === 0) {
+        logger.warn({ event: 'publish_status_race', publicationId, platform });
+        return;
+      }
 
       logger.info({
         event: 'publish_complete',
@@ -220,10 +258,10 @@ const worker = new Worker<PublishJobData>(
         throw error;
       }
 
-      // Final failure — mark as failed with truncated error message
+      // Final failure — mark as failed with truncated error message (optimistic: only if still publishing)
       const truncatedMessage = message.length > 500 ? message.slice(0, 500) : message;
-      await prisma.publication.update({
-        where: { id: publicationId },
+      await prisma.publication.updateMany({
+        where: { id: publicationId, status: 'publishing' },
         data: {
           status: 'failed',
           errorMessage: truncatedMessage,

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { openAsBlob } from 'node:fs';
 import { PlatformProvider } from './base';
 import type {
   PlatformPublishParams,
@@ -90,14 +91,13 @@ export class RutubeProvider extends PlatformProvider {
     logger.info({
       event: 'rutube_create_success',
       videoId: createResult.video_id,
-      uploadUrl: createResult.upload_url,
     });
 
     // Step 2: Upload file to the upload URL via PUT
     logger.info({ event: 'rutube_upload_start', fileSize: stat.size });
 
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const fileBlob = new Blob([fileBuffer]);
+    // Stream file from disk (critical for Rutube's 10GB limit — avoids OOM)
+    const fileBlob = await openAsBlob(filePath);
 
     const uploadForm = new FormData();
     uploadForm.append('file', fileBlob, 'video.mp4');

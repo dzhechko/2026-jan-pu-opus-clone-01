@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encryptToken } from '@clipmaker/crypto';
-import { getRedisConnection } from '@clipmaker/queue/src/queues';
-import Redis from 'ioredis';
 import { prisma } from '@clipmaker/db';
+import { getOAuthRedis } from '@/lib/redis';
+import { createLogger } from '@/lib/logger';
 
+const logger = createLogger('oauth-dzen-callback');
 const SETTINGS_URL = '/dashboard/settings';
-
-let redisClient: Redis | null = null;
-
-function getRedis(): Redis {
-  if (!redisClient) {
-    const conn = getRedisConnection();
-    redisClient = new Redis({
-      host: conn.host,
-      port: conn.port,
-      password: conn.password,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
-  }
-  return redisClient;
-}
+const FETCH_TIMEOUT = 15_000; // 15 seconds
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -37,7 +23,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Validate state from Redis
-    const redis = getRedis();
+    const redis = getOAuthRedis();
     const redisKey = `oauth:dzen:${state}`;
     const userId = await redis.get(redisKey);
 
@@ -70,6 +56,7 @@ export async function GET(request: NextRequest) {
         client_id: clientId,
         client_secret: clientSecret,
       }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
 
     if (!tokenRes.ok) {
@@ -117,7 +104,10 @@ export async function GET(request: NextRequest) {
     try {
       const publisherRes = await fetch(
         'https://zen.yandex.ru/media-api/v3/publisher',
-        { headers: { Authorization: `OAuth ${accessToken}` } },
+        {
+          headers: { Authorization: `OAuth ${accessToken}` },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        },
       );
       if (publisherRes.ok) {
         const publisherData = (await publisherRes.json()) as {
@@ -158,7 +148,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       `${baseUrl}${SETTINGS_URL}?connected=dzen`,
     );
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error({ event: 'dzen_oauth_callback_error', error: message });
     return NextResponse.redirect(
       `${baseUrl}${SETTINGS_URL}?error=dzen_auth_failed`,
     );

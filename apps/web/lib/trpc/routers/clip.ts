@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
@@ -387,7 +387,7 @@ export const clipRouter = router({
       // 5. Validate file size per platform
       let fileSize: number;
       try {
-        const stat = fs.statSync(clip.filePath);
+        const stat = await fs.stat(clip.filePath);
         fileSize = stat.size;
       } catch {
         throw new TRPCError({
@@ -397,7 +397,7 @@ export const clipRouter = router({
       }
 
       // 6. Validate each platform
-      const connections: Array<{ platform: string; connectionId: string }> = [];
+      const connections: Array<{ platform: string; connectionId: string; metadata?: Record<string, unknown> }> = [];
 
       for (const platform of input.platforms) {
         // Check plan allows this platform
@@ -452,7 +452,11 @@ export const clipRouter = router({
           });
         }
 
-        connections.push({ platform, connectionId: connection.id });
+        connections.push({
+          platform,
+          connectionId: connection.id,
+          metadata: connection.metadata as Record<string, unknown> | undefined,
+        });
       }
 
       // 7. Create publications in a transaction
@@ -490,6 +494,7 @@ export const clipRouter = router({
           filePath: clip.filePath!,
           title: clip.title,
           description: clip.description ?? undefined,
+          metadata: conn.metadata ?? undefined,
         };
 
         const delay = input.scheduleAt

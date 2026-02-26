@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { openAsBlob } from 'node:fs';
 import { PlatformProvider } from './base';
 import type {
   PlatformPublishParams,
@@ -117,8 +118,8 @@ export class TelegramProvider extends PlatformProvider {
     });
 
     // Upload video via sendVideo
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const fileBlob = new Blob([fileBuffer]);
+    // Stream file from disk (avoids loading entire file into memory)
+    const fileBlob = await openAsBlob(filePath);
 
     const form = new FormData();
     form.append('chat_id', resolvedChatId);
