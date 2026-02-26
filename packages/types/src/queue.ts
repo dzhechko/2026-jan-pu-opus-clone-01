@@ -1,4 +1,4 @@
-export type QueueName = 'stt' | 'llm' | 'video-render' | 'publish' | 'stats-collect';
+export type QueueName = 'stt' | 'llm' | 'video-render' | 'publish' | 'stats-collect' | 'billing-cron';
 
 export type STTJobData = {
   videoId: string;

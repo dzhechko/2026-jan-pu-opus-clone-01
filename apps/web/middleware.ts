@@ -27,6 +27,7 @@ const PUBLIC_PATH_PREFIXES: readonly string[] = [
   '/forgot-password',
   '/api/auth/',
   '/api/health',
+  '/api/webhooks/',
   '/_next/',
   '/favicon.ico',
 ] as const;

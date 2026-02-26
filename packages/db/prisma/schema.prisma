@@ -72,6 +72,18 @@ enum PaymentMethod {
   sbp
 }
 
+enum PaymentType {
+  subscription
+  extra_minutes
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  cancelled
+  refunded
+}
+
 enum PlanId {
   free
   start
@@ -99,6 +111,7 @@ model User {
   videos              Video[]
   clips               Clip[]
   subscription        Subscription?
+  payments            Payment[]
   usageRecords        UsageRecord[]
   platformConnections PlatformConnection[]
 
@@ -205,6 +218,7 @@ model Subscription {
   currentPeriodStart    DateTime           @map("current_period_start")
   currentPeriodEnd      DateTime           @map("current_period_end")
   cancelAtPeriodEnd     Boolean            @default(false) @map("cancel_at_period_end")
+  statusChangedAt       DateTime?          @map("status_changed_at")
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
 
@@ -245,4 +259,28 @@ model PlatformConnection {
 
   @@unique([userId, platform])
   @@map("platform_connections")
+}
+
+model Payment {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  externalId      String        @unique @map("external_id")
+  idempotenceKey  String        @unique @map("idempotence_key")
+  type            PaymentType   @default(subscription)
+  planId          PlanId?       @map("plan_id")
+  amount          Int           // kopecks (99000 = 990₽)
+  currency        String        @default("RUB")
+  status          PaymentStatus @default(pending)
+  paymentMethod   PaymentMethod @map("payment_method")
+  paymentMethodId String?       @map("payment_method_id")
+  description     String
+  metadata        Json?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  confirmedAt     DateTime?     @map("confirmed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("payments")
 }

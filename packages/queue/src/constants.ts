@@ -6,6 +6,7 @@ export const QUEUE_NAMES: Record<string, QueueName> = {
   VIDEO_RENDER: 'video-render',
   PUBLISH: 'publish',
   STATS_COLLECT: 'stats-collect',
+  BILLING_CRON: 'billing-cron',
 } as const;
 
 export const DEFAULT_JOB_OPTIONS = {

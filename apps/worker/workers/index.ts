@@ -11,8 +11,9 @@ async function main() {
   await import('./video-render');
   await import('./publish');
   await import('./stats-collector');
+  await import('./billing-cron');
 
-  logger.info({ event: 'workers_started', workers: ['stt', 'llm', 'video', 'publish', 'stats'] });
+  logger.info({ event: 'workers_started', workers: ['stt', 'llm', 'video', 'publish', 'stats', 'billing-cron'] });
 
   // Graceful shutdown
   const shutdown = async () => {
