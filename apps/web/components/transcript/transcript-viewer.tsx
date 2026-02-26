@@ -30,6 +30,7 @@ function findActiveSegment(segments: TranscriptSegment[], time: number): number 
 }
 
 export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: TranscriptViewerProps) {
+  const [expanded, setExpanded] = useState(false);
   const [pendingEdits, setPendingEdits] = useState<Map<number, string>>(new Map());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -147,47 +148,65 @@ export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: Tran
 
   return (
     <div className="bg-white rounded-xl border">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 border-b hover:bg-gray-50 transition-colors cursor-pointer"
+      >
         <div className="flex items-center gap-3">
           <h2 className="font-semibold">Субтитры</h2>
           <span className="text-xs text-gray-400">
             {data.segments.length} сегментов &middot; {data.sttModel}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {pendingEdits.size > 0 && (
-            <span className="text-xs text-amber-600">
-              {pendingEdits.size} изменений
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={handleSaveAll}
-            disabled={pendingEdits.size === 0 || saveStatus === 'saving'}
-            className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saveStatus === 'saving'
-              ? 'Сохранение...'
-              : saveStatus === 'success'
-                ? 'Сохранено'
-                : saveStatus === 'error'
-                  ? 'Ошибка'
-                  : 'Сохранить все'}
-          </button>
-        </div>
-      </div>
+        <svg
+          className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      <div ref={containerRef} className="max-h-[500px] overflow-y-auto divide-y">
-        {data.segments.map((segment, i) => (
-          <SegmentEditor
-            key={`${segment.start}-${i}`}
-            segment={segment}
-            index={i}
-            isActive={i === activeIndex}
-            onSave={handleSegmentSave}
-          />
-        ))}
-      </div>
+      {expanded && (
+        <>
+          {pendingEdits.size > 0 && (
+            <div className="flex items-center justify-end gap-2 px-4 py-2 border-b bg-gray-50">
+              <span className="text-xs text-amber-600">
+                {pendingEdits.size} изменений
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveAll}
+                disabled={saveStatus === 'saving'}
+                className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {saveStatus === 'saving'
+                  ? 'Сохранение...'
+                  : saveStatus === 'success'
+                    ? 'Сохранено'
+                    : saveStatus === 'error'
+                      ? 'Ошибка'
+                      : 'Сохранить все'}
+              </button>
+            </div>
+          )}
+
+          <div ref={containerRef} className="max-h-[500px] overflow-y-auto divide-y">
+            {data.segments.map((segment, i) => (
+              <SegmentEditor
+                key={`${segment.start}-${i}`}
+                segment={segment}
+                index={i}
+                isActive={i === activeIndex}
+                onSave={handleSegmentSave}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
