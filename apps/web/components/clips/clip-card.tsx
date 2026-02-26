@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useCallback } from 'react';
+import { memo, useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import type { ViralityScore } from '@clipmaker/types';
 import { ScoreBadge } from './virality-breakdown';
@@ -14,6 +14,7 @@ type ClipCardProps = {
     viralityScore: unknown;
     cta: unknown;
     thumbnailUrl?: string;
+    videoUrl?: string;
     publications: Array<{ id: string }>;
   };
   userPlan?: string;
@@ -39,6 +40,7 @@ export const ClipCard = memo(function ClipCard({
   downloadError,
   onClearError,
 }: ClipCardProps) {
+  const [playing, setPlaying] = useState(false);
 
   const viralityScore = useMemo((): ViralityScore => {
     const score = clip.viralityScore as Partial<ViralityScore> | null;
@@ -62,18 +64,47 @@ export const ClipCard = memo(function ClipCard({
     [onDownload, clip.id, clip.title],
   );
 
+  const handlePlayClick = useCallback(() => {
+    if (clip.videoUrl) setPlaying(true);
+  }, [clip.videoUrl]);
+
   return (
     <div className="bg-white rounded-xl border overflow-hidden hover:shadow-sm transition">
-      <div className="aspect-[9/16] bg-gray-100 flex items-center justify-center relative overflow-hidden">
-        {clip.thumbnailUrl ? (
-          <img
-            src={clip.thumbnailUrl}
-            alt={clip.title}
-            className="w-full h-full object-cover"
-            loading="lazy"
+      <div
+        className="aspect-[9/16] bg-black flex items-center justify-center relative overflow-hidden cursor-pointer"
+        onClick={handlePlayClick}
+      >
+        {playing && clip.videoUrl ? (
+          <video
+            src={clip.videoUrl}
+            autoPlay
+            controls
+            playsInline
+            className="w-full h-full object-contain"
+            onEnded={() => setPlaying(false)}
           />
         ) : (
-          <span className="text-gray-400">Preview</span>
+          <>
+            {clip.thumbnailUrl ? (
+              <img
+                src={clip.thumbnailUrl}
+                alt={clip.title}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <span className="text-gray-400">Preview</span>
+            )}
+            {clip.videoUrl && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/10 hover:bg-black/20 transition-colors">
+                <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                  <svg className="w-5 h-5 text-gray-800 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+            )}
+          </>
         )}
         {clip.status === 'rendering' && (
           <div className="absolute inset-0 bg-black/20 flex items-center justify-center">

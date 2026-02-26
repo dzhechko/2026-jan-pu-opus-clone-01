@@ -28,16 +28,22 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ vi
 
   if (!video) notFound();
 
-  // Generate thumbnail URLs: proxy path (dev) or presigned S3 URL (prod)
+  // Generate thumbnail & video URLs: proxy path (dev) or presigned S3 URL (prod)
   const clipsWithUrls = await Promise.all(
     video.clips.map(async (clip) => {
       let thumbnailUrl: string | undefined;
+      let videoUrl: string | undefined;
       if (clip.thumbnailPath) {
         thumbnailUrl = useS3Proxy
           ? `/api/clips/${clip.id}/thumbnail`
           : await generateDownloadUrl(clip.thumbnailPath);
       }
-      return { ...clip, thumbnailUrl };
+      if (clip.filePath && clip.status === 'ready') {
+        videoUrl = useS3Proxy
+          ? `/api/clips/${clip.id}/file`
+          : await generateDownloadUrl(clip.filePath);
+      }
+      return { ...clip, thumbnailUrl, videoUrl };
     }),
   );
 
