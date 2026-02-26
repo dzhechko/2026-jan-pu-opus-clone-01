@@ -92,5 +92,6 @@ Per project security rules:
 | Дзен | ~1 req/s | 0.5 req/s | Most restrictive |
 | Telegram | 30 msg/s | 5 msg/s | Per-channel, not per-bot |
 
-Worker concurrency: 2 (already configured in publish worker)
+Worker concurrency: 2 per worker instance (already configured in publish worker)
 Per-platform rate limiter in BullMQ: `{ max: 2, duration: 1000 }` (2 req/sec)
+Note: 10+ concurrent jobs achievable by scaling worker replicas (each handles 2 concurrent)

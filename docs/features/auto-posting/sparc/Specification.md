@@ -33,9 +33,10 @@
 
 **Acceptance Criteria:**
 - AC1: "Подключить Дзен" button visible for Pro/Business plans
-- AC2: Clicking initiates Yandex OAuth with publishing scopes
-- AC3: Token stored encrypted in PlatformConnection
-- AC4: UI shows connected account
+- AC2: Clicking initiates Yandex OAuth with `zen:write` and `zen:read` scopes
+- AC3: Access token and refresh token stored encrypted in PlatformConnection
+- AC4: UI shows connected publisher name from Yandex API
+- AC5: Token auto-refreshed via refresh_token when expired
 
 ### US-AP-04: Connect Telegram Channel
 **As a** content creator on Pro/Business plan,
@@ -44,10 +45,11 @@
 
 **Acceptance Criteria:**
 - AC1: "Подключить Telegram" button visible for Pro/Business plans
-- AC2: User enters bot token and channel ID
-- AC3: System validates by calling `getChat` API
+- AC2: User enters bot token (from @BotFather) and channel ID (format: `@channelname` or `-100XXXXXXXXXX` for private channels)
+- AC3: System validates bot via `getMe` and channel access via `getChat` API; shows error "Бот не является админом канала" if bot has no admin rights
 - AC4: Bot token stored encrypted in PlatformConnection
-- AC5: Channel name displayed in UI
+- AC5: Channel name and username displayed in UI
+- AC6: Helper text explains how to get bot token and channel ID
 
 ### US-AP-05: Publish Clip Instantly
 **As a** content creator with connected platforms,
@@ -81,10 +83,11 @@
 **So that** I know which clips were published successfully.
 
 **Acceptance Criteria:**
-- AC1: Publication status visible on clip card (scheduled/publishing/published/failed)
-- AC2: Published clips show platform link (clickable)
+- AC1: Publication status visible on clip card (scheduled/publishing/published/failed/cancelled)
+- AC2: Published clips show platform link (clickable, opens in new tab)
 - AC3: Failed clips show error message and retry button
-- AC4: Stats (views, likes, shares) shown for published clips
+- AC4: Stats shown per platform where available: VK (views, likes, shares), Rutube (views only), Дзен (views, likes, shares). Telegram shows "Статистика недоступна" — Telegram Bot API does not provide post-level stats
+- AC5: Stats refresh every 6 hours for published clips (up to 30 days after publish)
 
 ### US-AP-08: Disconnect Platform
 **As a** content creator,
@@ -99,12 +102,14 @@
 
 ## Non-Functional Requirements
 
-- **Latency:** Clip published within 60s of user action (network + upload time)
+- **Latency:** Clip published within 60s of user action (excluding upload time for large files)
 - **Reliability:** 95%+ first-attempt success rate
-- **File Size:** Support clips up to 500MB
-- **Concurrency:** Process 10+ concurrent publish jobs
-- **Rate Limits:** Respect per-platform API limits
-- **Security:** Tokens encrypted at rest, decrypted only in worker memory
+- **File Size:** Per-platform limits: VK 256MB, Telegram 50MB, Дзен 4GB, Rutube 10GB
+- **Concurrency:** Worker concurrency 2 (rate-limited to respect API limits; 10+ concurrent only across multiple worker replicas)
+- **Rate Limits:** Per-platform BullMQ rate limiter: VK 2 req/s, Rutube 1 req/s, Дзен 0.5 req/s, Telegram 5 msg/s
+- **Security:** Tokens encrypted at rest (AES-GCM), decrypted only in worker memory; tokens never in Redis job data
+- **Scheduling:** User's timezone detected from browser; minimum 5 minutes in future; cancel allowed up to job processing start
+- **Stats:** Sync every 6 hours for 30 days after publish; Telegram excluded (no stats API)
 
 ## Feature Matrix
 

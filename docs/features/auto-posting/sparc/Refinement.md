@@ -28,7 +28,15 @@
 
 ### VK Clips vs VK Video
 - **Scenario:** Some users want regular VK Video, not VK Clips
-- **Handling:** MVP always publishes as VK Clips (short vertical video). Future: add option to choose between clip and video.
+- **Handling:** MVP always publishes as VK Clips via `is_short=1` parameter in `video.save()`. Future: add option to choose between clip and video.
+
+### Telegram Stats Unavailable
+- **Scenario:** User expects views/likes stats for Telegram publications
+- **Handling:** Telegram Bot API does not provide post-level stats. UI shows "Статистика недоступна" for Telegram publications. Stats sync cron skips Telegram entirely.
+
+### Per-Platform File Size Limits
+- **Scenario:** Clip is too large for a specific platform (e.g. 100MB clip → Telegram 50MB limit)
+- **Handling:** Validate file size per-platform BEFORE creating Publication records. Show specific error: "Файл слишком большой для Telegram (максимум 50 МБ)". User can still publish to other platforms with higher limits.
 
 ### Rate Limit Hit
 - **Scenario:** Multiple users publishing to VK simultaneously

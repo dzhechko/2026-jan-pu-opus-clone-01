@@ -73,11 +73,16 @@ PLATFORM_TOKEN_SECRET=<32-byte-hex>
 ## Handoff Checklist
 
 ### Dev
-- [ ] All 4 platform providers implemented
-- [ ] OAuth flows tested with real credentials
-- [ ] Publish worker handles all error cases
-- [ ] Stats collector scheduled and working
-- [ ] Token encryption/decryption tested
+- [ ] All 4 platform providers implemented (VK, Rutube, Дзен, Telegram)
+- [ ] Token encryption module created (packages/crypto or shared lib)
+- [ ] OAuth flows tested with real credentials (VK, Дзен)
+- [ ] Token-based flows tested (Rutube, Telegram)
+- [ ] Publish worker handles all error cases (401, timeout, file not found)
+- [ ] Token refresh logic for Дзен (only platform with refresh_token)
+- [ ] Stats collector scheduled and working (skips Telegram)
+- [ ] Cancel and retry publication mutations working
+- [ ] Disconnect cancels pending publications
+- [ ] DB migration: 'cancelled' added to PublicationStatus enum
 
 ### QA
 - [ ] Connect each platform type

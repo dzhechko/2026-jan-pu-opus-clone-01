@@ -49,11 +49,10 @@
 - `/api/oauth/dzen/callback` — Yandex OAuth code exchange
 - These are Next.js API routes (not tRPC) because OAuth redirects need plain HTTP
 
-### 3. Clip Publish Mutation (modified `clip.publish`)
-- Validate clip status, plan permissions, platform connections
-- Create Publication records
-- Enqueue BullMQ jobs with encrypted tokens
-- Return publication statuses
+### 3. Clip Router Mutations (modified `clip.publish` + new mutations)
+- **clip.publish**: Validate clip status, plan permissions, platform connections, file size per platform; create Publication records; enqueue BullMQ jobs (token read from DB by worker, NOT passed in job data)
+- **clip.cancelPublication**: Cancel scheduled publication, remove BullMQ job
+- **clip.retryPublication**: Re-enqueue failed publication
 
 ### 4. Platform Providers (`apps/worker/lib/providers/`)
 - `base.ts` — Abstract base class (already exists)
@@ -71,10 +70,14 @@
 - Already exists (skeletal)
 - Needs: platform provider stats implementations, scheduling trigger
 
-### 7. Token Encryption Module (`apps/web/lib/crypto.ts`)
-- Server-side AES-GCM encryption for OAuth tokens
-- Uses `PLATFORM_TOKEN_SECRET` env var as key
-- Used by OAuth callbacks and token-based connection flows
+### 7. Token Encryption Module (`packages/crypto/` or `apps/web/lib/crypto.ts`)
+- **New module** — does not exist yet, needs to be created
+- Server-side AES-256-GCM encryption for OAuth tokens
+- Uses `PLATFORM_TOKEN_SECRET` env var (32-byte hex) as key
+- IV generated per-encryption (prepended to ciphertext as `iv:ciphertext:authTag`)
+- Exported functions: `encrypt(plaintext, key): string`, `decrypt(encrypted, key): string`
+- Used by: OAuth callbacks (web), token-based connection flows (web), publish worker (worker), stats worker (worker)
+- Shared between apps/web and apps/worker → consider placing in packages/ for reuse
 
 ## Data Flow: Publish
 

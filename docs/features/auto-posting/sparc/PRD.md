@@ -20,12 +20,12 @@ One-click or scheduled multi-platform publishing from the КлипМейкер d
 
 ## Core Features (MVP)
 
-1. **Platform Connection** — OAuth for VK; token-based for Rutube, Дзен, Telegram
+1. **Platform Connection** — OAuth for VK and Дзен; token-based for Rutube and Telegram
 2. **Instant Publish** — One-click publish to 1-4 platforms simultaneously
-3. **Scheduled Publish** — Set date/time for future publication
-4. **Auto-Retry** — 3 retries with exponential backoff on API errors
-5. **Publication Status** — Real-time status tracking (publishing → published/failed)
-6. **Stats Sync** — Periodic views/likes/shares collection from platforms
+3. **Scheduled Publish** — Set date/time for future publication (min 5 min ahead)
+4. **Auto-Retry** — 3 retries with exponential backoff (5/15/60 min) on API errors
+5. **Publication Status** — Status tracking: scheduled → publishing → published/failed/cancelled
+6. **Stats Sync** — Views/likes/shares collection every 6 hours (VK, Rutube, Дзен; not Telegram)
 
 ## Plan-Based Access
 
@@ -38,10 +38,10 @@ One-click or scheduled multi-platform publishing from the КлипМейкер d
 
 ## Success Criteria
 
-- Publish to VK within 60s of user action
+- Publish to VK within 60s of user action (excluding large file upload time)
 - 95%+ success rate on first publish attempt
-- Support clips up to 500MB / 10 minutes
-- Stats sync within 6 hours of publication
+- Per-platform file limits: VK 256MB, Telegram 50MB, Дзен 4GB, Rutube 10GB
+- Stats sync within 6 hours of publication (VK, Rutube, Дзен)
 
 ## Technical Context
 
@@ -49,7 +49,7 @@ One-click or scheduled multi-platform publishing from the КлипМейкер d
 - Queue: BullMQ on Redis
 - Workers: apps/worker (publish, stats-collector)
 - Storage: S3-compatible (clip files)
-- Auth: OAuth 2.0 (VK), API tokens (Rutube, Дзен, Telegram)
+- Auth: OAuth 2.0 (VK, Дзен via Yandex ID), API tokens (Rutube, Telegram)
 - Encryption: AES-GCM for stored tokens (passed through server, never stored plaintext)
 
 ## Constraints

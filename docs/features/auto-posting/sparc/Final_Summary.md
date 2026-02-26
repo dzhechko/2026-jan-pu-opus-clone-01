@@ -16,12 +16,13 @@ Auto-posting enables one-click or scheduled publishing of rendered clips to VK �
 
 | Component | Count | Status |
 |-----------|-------|--------|
-| Platform providers | 4 | Stub → Full implementation |
-| tRPC procedures | 4 | New (platform router) |
+| Platform providers | 4 | Stub → Full implementation (VK, Rutube, Дзен, Telegram) |
+| tRPC procedures | 7 | platform: connect/list/disconnect/testConnection; clip: publish/cancel/retry |
 | OAuth callbacks | 2 | New (VK, Дзен) |
-| Worker modifications | 2 | Existing → Enhanced |
+| Worker modifications | 2 | Existing → Enhanced (publish + stats-collect) |
+| Crypto module | 1 | New (AES-GCM token encryption, shared package) |
 | UI components | 2 | New (settings + publish) |
-| DB schema changes | 1 | Add errorMessage to Publication |
+| DB schema changes | 2 | Add 'cancelled' to PublicationStatus, add errorMessage to Publication |
 
 ## Key Decisions
 
