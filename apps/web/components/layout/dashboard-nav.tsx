@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { LogOutIcon, VideoIcon, SettingsIcon, UploadIcon } from 'lucide-react';
+import { LogOutIcon, VideoIcon, SettingsIcon, UploadIcon, BarChart3Icon } from 'lucide-react';
 
 type DashboardUser = {
   id: string;
@@ -46,6 +46,10 @@ export function DashboardNav({ user }: DashboardNavProps) {
           <Link href="/dashboard/upload" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900">
             <UploadIcon className="h-4 w-4" />
             Загрузить
+          </Link>
+          <Link href="/dashboard/analytics" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900">
+            <BarChart3Icon className="h-4 w-4" />
+            Аналитика
           </Link>
         </div>
 
