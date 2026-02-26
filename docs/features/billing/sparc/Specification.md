@@ -60,6 +60,13 @@ Feature: Plan Comparison & Upgrade
     Then the Start column shows "Текущий план" instead of an upgrade button
     And higher plans show upgrade buttons
     And Free shows "Текущие возможности" label (no downgrade button)
+
+  Scenario: ЮKassa API unavailable during checkout
+    Given I am upgrading to Start
+    When I click pay and the ЮKassa API returns an error or times out
+    Then I see: "Платёжная система недоступна. Попробуйте позже"
+    And no Payment record is created
+    And my plan remains unchanged
 ```
 
 ---
@@ -119,25 +126,28 @@ Feature: Auto-Renewal
 
   Scenario: Successful auto-renewal
     Given my billing period ends today and cancelAtPeriodEnd is false
-    When the daily billing cron job runs
+    When the daily billing cron job runs (03:00 UTC)
     Then the server creates a ЮKassa payment using saved payment_method_id
-    And on success: extend currentPeriodEnd by 1 month
+    And on success: extend currentPeriodEnd by 1 calendar month (e.g., Jan 15 → Feb 15)
     And reset User.minutesUsed to 0
 
   Scenario: Auto-renewal payment fails
     Given my auto-renewal payment is declined
     When the webhook payment.canceled arrives
-    Then Subscription.status changes to 'past_due'
+    Then Subscription.status changes to 'past_due' and statusChangedAt is recorded
     And the user sees a banner: "Оплата не прошла. Обновите способ оплаты"
-    And the system retries once more after 3 days
-    And if retry fails: downgrade to free after 7 days grace period
+    And the system retries once more after 3 days (on the next cron run ≥72h after first failure)
+    And during the grace period the user retains full plan access
+    And if retry also fails: downgrade to free 7 days after the first failure date
 
   Scenario: СБП auto-renewal not supported
     Given I originally paid with СБП
-    When auto-renewal is due
-    Then the system sends an email: "Оплатите подписку вручную"
+    When auto-renewal is due (period expired, no saved payment method)
+    Then Subscription.status changes to 'past_due'
+    And the system sends an email 3 days before expiration: "Оплатите подписку вручную"
     And shows a banner on dashboard: "Подписка истекает DD.MM.YYYY. Продлите вручную"
-    And provides a direct payment link
+    And provides a direct payment link to /dashboard/billing
+    And if not renewed within 7 days of expiration: downgrade to free
 ```
 
 ---

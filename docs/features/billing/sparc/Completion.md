@@ -99,7 +99,7 @@ logger.warn({ ip }, 'webhook.ip_rejected');
 ### Ops Checklist
 - [ ] `YOOKASSA_SHOP_ID` and `YOOKASSA_SECRET_KEY` in production env
 - [ ] Webhook URL configured in ЮKassa dashboard
-- [ ] Firewall allows ЮKassa IPs (185.71.76.0/27, 185.71.77.0/27)
+- [ ] Firewall allows ЮKassa IPs (185.71.76.0/27, 185.71.77.0/27, 77.75.153.0/25, 77.75.156.11, 77.75.156.35)
 - [ ] Billing cron job running (check BullMQ dashboard)
 - [ ] Log aggregation includes billing events
 - [ ] Backup includes payments table

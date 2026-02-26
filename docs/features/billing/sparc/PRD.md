@@ -28,7 +28,7 @@ Implement ЮKassa payment integration with card and СБП (QR) payment methods 
 - Minute overage: offer extra minutes at 15₽/min (one-time payment)
 
 ### 3. Billing Page UI
-- `/dashboard/billing` — plan comparison table, current plan highlight, upgrade/downgrade CTAs
+- `/dashboard/billing` — plan comparison table, current plan highlight, upgrade CTAs (downgrade is out of scope for MVP)
 - Checkout flow: select plan → select payment method (card/СБП) → redirect to ЮKassa
 - Subscription management: view current plan, next renewal date, cancel button
 - Payment history (from ЮKassa API or local Payment model)

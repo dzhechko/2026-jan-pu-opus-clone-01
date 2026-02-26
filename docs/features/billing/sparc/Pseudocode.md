@@ -42,6 +42,46 @@ enum PaymentStatus {
 }
 ```
 
+### Existing Models Reference (already in schema.prisma)
+
+The following models already exist and will be used as-is:
+
+```prisma
+// User — relevant billing fields (already exist)
+model User {
+  planId              PlanId    @default(free)
+  minutesUsed         Int       @default(0)
+  minutesLimit        Int       @default(30)
+  billingPeriodStart  DateTime  @default(now())
+  // + subscription relation, usageRecords relation
+}
+
+// Subscription — already exists with all needed fields
+model Subscription {
+  userId                  String    @unique
+  planId                  PlanId
+  status                  SubscriptionStatus  @default(active)
+  paymentProvider         String    @default("yookassa")
+  paymentMethod           PaymentMethod
+  externalSubscriptionId  String?   // saved payment_method.id for recurring
+  currentPeriodStart      DateTime
+  currentPeriodEnd        DateTime
+  cancelAtPeriodEnd       Boolean   @default(false)
+  statusChangedAt         DateTime? // ← NEW FIELD: tracks when status last changed (for grace period)
+}
+
+// Enums already exist:
+// PlanId: free | start | pro | business
+// SubscriptionStatus: active | cancelled | past_due | expired
+// PaymentMethod: card | sbp
+```
+
+**Schema migration needed:**
+1. Add `Payment` model (new)
+2. Add `PaymentType` and `PaymentStatus` enums (new)
+3. Add `statusChangedAt` field to `Subscription` (for grace period tracking)
+4. Add `payments` relation to `User`
+
 ### Plan Config (constants)
 
 ```typescript
@@ -62,6 +102,9 @@ export type PlanDefinition = {
 };
 
 export const EXTRA_MINUTES_PRICE_KOPECKS = 1500; // 15₽/min
+
+/** Sentinel for "unlimited" minutes on Business plan. ~69 days continuous processing. */
+export const UNLIMITED_MINUTES = 99999;
 ```
 
 ## Core Algorithms
@@ -93,22 +136,33 @@ async function checkout(userId: string, input: CheckoutInput) {
   // 3. Generate idempotence key
   const idempotenceKey = `sub-${userId}-${input.planId}-${Date.now()}`;
 
-  // 4. Create ЮKassa payment
+  // 4. Rate limit checkout
+  await checkRateLimit('billing:checkout', userId, 3, 600); // 3 per 10min
+
+  // 5. Create ЮKassa payment
   const confirmation = input.paymentMethod === 'sbp'
     ? { type: 'qr' }
     : { type: 'redirect', return_url: input.returnUrl };
 
-  const yooPayment = await yookassa.createPayment({
-    amount: { value: formatRubles(plan.price), currency: 'RUB' },
-    confirmation,
-    capture: true,
-    save_payment_method: true,
-    description: `КлипМейкер: тариф ${input.planId} (1 мес)`,
-    metadata: { userId, planId: input.planId, type: 'subscription' },
-    receipt: buildReceipt(user.email, input.planId, plan.price),
-  }, idempotenceKey);
+  let yooPayment;
+  try {
+    yooPayment = await yookassa.createPayment({
+      amount: { value: formatRubles(plan.price), currency: 'RUB' },
+      confirmation,
+      capture: true,
+      save_payment_method: true,
+      description: `КлипМейкер: тариф ${input.planId} (1 мес)`,
+      metadata: { userId, planId: input.planId, type: 'subscription' },
+      receipt: buildReceipt(user.email, input.planId, plan.price),
+    }, idempotenceKey);
+  } catch (err) {
+    if (err instanceof YooKassaError) {
+      throw TRPCError('SERVICE_UNAVAILABLE', 'Платёжная система недоступна. Попробуйте позже');
+    }
+    throw err;
+  }
 
-  // 5. Create local Payment record (pending)
+  // 6. Create local Payment record (pending)
   await prisma.payment.create({
     data: {
       userId,
@@ -190,6 +244,55 @@ async function buyMinutes(userId: string, input: BuyMinutesInput) {
 }
 ```
 
+### 2b. billing.cancel Mutation
+
+```typescript
+async function cancel(userId: string) {
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+  });
+
+  if (!sub) throw TRPCError('NOT_FOUND', 'Подписка не найдена');
+  if (sub.status === 'expired') throw TRPCError('BAD_REQUEST', 'Подписка уже истекла');
+  if (sub.cancelAtPeriodEnd) throw TRPCError('BAD_REQUEST', 'Подписка уже отменена');
+
+  await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { cancelAtPeriodEnd: true },
+  });
+
+  // TODO: Send cancellation confirmation email to user
+
+  return { cancelAtPeriodEnd: true, activeUntil: sub.currentPeriodEnd };
+}
+```
+
+### 2c. billing.reactivate Mutation
+
+```typescript
+async function reactivate(userId: string) {
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+  });
+
+  if (!sub) throw TRPCError('NOT_FOUND', 'Подписка не найдена');
+  if (sub.status === 'expired') throw TRPCError('BAD_REQUEST', 'Подписка истекла, оформите новую');
+  if (!sub.cancelAtPeriodEnd) throw TRPCError('BAD_REQUEST', 'Подписка не была отменена');
+
+  // Check period hasn't ended yet
+  if (sub.currentPeriodEnd <= new Date()) {
+    throw TRPCError('BAD_REQUEST', 'Период подписки уже истёк');
+  }
+
+  await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { cancelAtPeriodEnd: false },
+  });
+
+  return { cancelAtPeriodEnd: false };
+}
+```
+
 ### 3. Webhook Handler — /api/webhooks/yookassa
 
 ```typescript
@@ -201,10 +304,19 @@ async function handleWebhook(request: NextRequest) {
     return NextResponse(403);
   }
 
-  // 2. Parse body
-  const body = await request.json();
-  const event = body.event;  // 'payment.succeeded' | 'payment.canceled' | 'refund.succeeded'
-  const paymentData = body.object;
+  // 2. Parse and validate body with Zod
+  const WebhookSchema = z.object({
+    event: z.enum(['payment.succeeded', 'payment.canceled', 'payment.waiting_for_capture', 'refund.succeeded']),
+    object: z.object({
+      id: z.string(),
+      amount: z.object({ value: z.string(), currency: z.string() }),
+      payment_method: z.object({ id: z.string() }).optional(),
+      metadata: z.record(z.unknown()).optional(),
+    }),
+  });
+  const parsed = WebhookSchema.safeParse(await request.json());
+  if (!parsed.success) return NextResponse(200); // ignore malformed, don't trigger retries
+  const { event, object: paymentData } = parsed.data;
 
   // 3. Idempotency: check if already processed
   const existingPayment = await prisma.payment.findUnique({
@@ -219,7 +331,17 @@ async function handleWebhook(request: NextRequest) {
     return NextResponse(200);
   }
 
-  // 4. Handle event
+  // 4. Validate amount matches expected (security: prevent tampered webhooks)
+  if (event === 'payment.succeeded') {
+    const expectedAmount = existingPayment.amount; // kopecks
+    const webhookAmount = Math.round(parseFloat(paymentData.amount.value) * 100);
+    if (webhookAmount !== expectedAmount) {
+      console.error('Amount mismatch', { paymentId: existingPayment.id, expected: expectedAmount, got: webhookAmount });
+      return NextResponse(200); // don't process, don't retry
+    }
+  }
+
+  // 5. Handle event
   switch (event) {
     case 'payment.succeeded':
       await handlePaymentSucceeded(existingPayment, paymentData);
@@ -365,85 +487,135 @@ async function checkPaymentStatus(userId: string, paymentId: string) {
 ### 6. Billing Period Reset Cron Job
 
 ```typescript
+const GRACE_PERIOD_DAYS = 7;
+const RETRY_AFTER_DAYS = 3;
+const BATCH_SIZE = 100;
+
 // BullMQ repeatable job: runs daily at 03:00 UTC
 async function billingPeriodReset() {
   const now = new Date();
+  let cursor: string | undefined;
 
-  // 1. Find subscriptions with expired periods
-  const expiredSubs = await prisma.subscription.findMany({
-    where: {
-      currentPeriodEnd: { lte: now },
-      status: { in: ['active', 'past_due'] },
-    },
-    include: { user: true },
-  });
+  // Process in batches of 100 to prevent long transactions
+  while (true) {
+    const expiredSubs = await prisma.subscription.findMany({
+      where: {
+        currentPeriodEnd: { lte: now },
+        status: { in: ['active', 'past_due'] },
+      },
+      include: { user: true },
+      take: BATCH_SIZE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { id: 'asc' },
+    });
 
-  for (const sub of expiredSubs) {
-    if (sub.cancelAtPeriodEnd || sub.status === 'past_due') {
-      // Downgrade to free
-      await prisma.$transaction([
-        prisma.subscription.update({
-          where: { id: sub.id },
-          data: { status: 'expired' },
-        }),
-        prisma.user.update({
-          where: { id: sub.userId },
-          data: {
-            planId: 'free',
-            minutesLimit: PLAN_CONFIG.free.minutesLimit,
-            minutesUsed: 0,
-            billingPeriodStart: now,
-          },
-        }),
-      ]);
-    } else {
-      // Auto-renew: create payment using saved method
-      const savedMethodId = sub.externalSubscriptionId;
-      if (!savedMethodId) {
-        // No saved method (СБП) — mark past_due, send email
-        await prisma.subscription.update({
-          where: { id: sub.id },
-          data: { status: 'past_due' },
-        });
-        // TODO: Send renewal reminder email
-        continue;
-      }
+    if (expiredSubs.length === 0) break;
+    cursor = expiredSubs[expiredSubs.length - 1].id;
 
+    for (const sub of expiredSubs) {
       try {
-        const plan = PLAN_CONFIG[sub.planId];
-        const idempotenceKey = `renew-${sub.userId}-${sub.planId}-${now.toISOString().slice(0, 10)}`;
-
-        const yooPayment = await yookassa.createPayment({
-          amount: { value: formatRubles(plan.price), currency: 'RUB' },
-          payment_method_id: savedMethodId,
-          capture: true,
-          description: `Авто-продление: КлипМейкер ${sub.planId}`,
-          metadata: { userId: sub.userId, planId: sub.planId, type: 'subscription' },
-          receipt: buildReceipt(sub.user.email, sub.planId, plan.price),
-        }, idempotenceKey);
-
-        await prisma.payment.create({
-          data: {
-            userId: sub.userId,
-            externalId: yooPayment.id,
-            idempotenceKey,
-            type: 'subscription',
-            planId: sub.planId,
-            amount: plan.price,
-            status: 'pending',
-            paymentMethod: sub.paymentMethod,
-            description: yooPayment.description,
-          },
-        });
-        // Webhook will handle activation
+        await processExpiredSubscription(sub, now);
       } catch (err) {
-        console.error(`Auto-renewal failed for user ${sub.userId}:`, err);
-        await prisma.subscription.update({
-          where: { id: sub.id },
-          data: { status: 'past_due' },
-        });
+        console.error(`Failed to process subscription ${sub.id}:`, err);
+        // Continue with other subscriptions
       }
     }
+  }
+}
+
+async function processExpiredSubscription(sub: SubscriptionWithUser, now: Date) {
+  // Case 1: User cancelled — downgrade to free
+  if (sub.cancelAtPeriodEnd) {
+    await downgradeToFree(sub, now);
+    return;
+  }
+
+  // Case 2: Already past_due — check grace period
+  if (sub.status === 'past_due') {
+    const pastDueSince = sub.statusChangedAt ?? sub.currentPeriodEnd;
+    const daysSincePastDue = Math.floor((now.getTime() - pastDueSince.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysSincePastDue >= GRACE_PERIOD_DAYS) {
+      // Grace period expired — downgrade to free
+      await downgradeToFree(sub, now);
+      return;
+    }
+
+    if (daysSincePastDue >= RETRY_AFTER_DAYS) {
+      // Retry payment after 3 days
+      await attemptAutoRenewal(sub, now);
+    }
+    // Otherwise: still within grace period, skip
+    return;
+  }
+
+  // Case 3: Active subscription, period expired — auto-renew
+  await attemptAutoRenewal(sub, now);
+}
+
+async function downgradeToFree(sub: SubscriptionWithUser, now: Date) {
+  await prisma.$transaction([
+    prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: 'expired', statusChangedAt: now },
+    }),
+    prisma.user.update({
+      where: { id: sub.userId },
+      data: {
+        planId: 'free',
+        minutesLimit: PLAN_CONFIG.free.minutesLimit,
+        minutesUsed: 0,
+        billingPeriodStart: now,
+      },
+    }),
+  ]);
+}
+
+async function attemptAutoRenewal(sub: SubscriptionWithUser, now: Date) {
+  const savedMethodId = sub.externalSubscriptionId;
+  if (!savedMethodId) {
+    // No saved method (СБП) — mark past_due, user must renew manually
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: 'past_due', statusChangedAt: now },
+    });
+    // TODO: Send renewal reminder email
+    return;
+  }
+
+  try {
+    const plan = PLAN_CONFIG[sub.planId];
+    const idempotenceKey = `renew-${sub.userId}-${sub.planId}-${now.toISOString().slice(0, 10)}`;
+
+    const yooPayment = await yookassa.createPayment({
+      amount: { value: formatRubles(plan.price), currency: 'RUB' },
+      payment_method_id: savedMethodId,
+      capture: true,
+      description: `Авто-продление: КлипМейкер ${sub.planId}`,
+      metadata: { userId: sub.userId, planId: sub.planId, type: 'subscription' },
+      receipt: buildReceipt(sub.user.email, sub.planId, plan.price),
+    }, idempotenceKey);
+
+    await prisma.payment.create({
+      data: {
+        userId: sub.userId,
+        externalId: yooPayment.id,
+        idempotenceKey,
+        type: 'subscription',
+        planId: sub.planId,
+        amount: plan.price,
+        status: 'pending',
+        paymentMethod: sub.paymentMethod,
+        description: yooPayment.description,
+      },
+    });
+    // Webhook will handle activation on payment.succeeded
+  } catch (err) {
+    console.error(`Auto-renewal failed for user ${sub.userId}:`, err);
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: 'past_due', statusChangedAt: now },
+    });
   }
 }
 ```

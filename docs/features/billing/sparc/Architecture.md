@@ -159,8 +159,18 @@ Billing integrates into the existing Distributed Monolith as a new vertical slic
 
 ### JWT Refresh on Plan Change
 When plan changes via webhook, the user's JWT still contains the old `planId`. Options:
-1. **Chosen approach**: Next request triggers middleware refresh — middleware checks DB if JWT planId differs from User.planId, issues new JWT
+1. **Chosen approach**: tRPC `billing.subscription` query returns authoritative planId from DB. Client-side React Query invalidation on checkout return refreshes displayed plan immediately. The stale JWT `planId` is used only for non-critical display (watermark badge). On next token refresh cycle (15 min), middleware issues JWT with correct planId from DB.
 2. Alternative: Force-refresh via SSE/WebSocket (too complex for MVP)
+3. Alternative: Middleware DB check on every request (not possible — Edge Runtime cannot access Prisma)
+
+### Webhook Endpoint — Public Path
+The webhook endpoint `/api/webhooks/yookassa` MUST be added to `PUBLIC_PATH_PREFIXES` in `apps/web/middleware.ts` since ЮKassa sends unauthenticated POSTs. Auth is handled via IP allowlist instead.
+
+### Queue Registration
+A new `billing-cron` queue must be registered:
+1. Add `'billing-cron'` to `QueueName` type in `packages/types/src/queue.ts`
+2. Add `BILLING_CRON` to `QUEUE_NAMES` in `packages/queue/src/constants.ts`
+3. Import `billing-cron` worker in `apps/worker/workers/index.ts`
 
 ## Scalability Considerations
 
