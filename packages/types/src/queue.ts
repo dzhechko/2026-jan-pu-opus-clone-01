@@ -1,4 +1,4 @@
-export type QueueName = 'stt' | 'llm' | 'video-render' | 'publish' | 'stats-collect' | 'billing-cron';
+export type QueueName = 'stt' | 'llm' | 'video-render' | 'publish' | 'stats-collect' | 'billing-cron' | 'video-download';
 
 export type STTJobData = {
   videoId: string;
@@ -43,4 +43,11 @@ export type StatsCollectJobData = {
   platform: 'vk' | 'rutube' | 'dzen' | 'telegram';
   platformPostId: string;
   connectionId: string;
+};
+
+export type VideoDownloadJobData = {
+  videoId: string;
+  url: string;
+  userId: string;
+  strategy: 'ru' | 'global';
 };
