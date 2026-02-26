@@ -15,3 +15,5 @@
 | INS-011 | `not a valid model ID`, `google/gemini-2.0-flash`, OpenRouter `400` | OpenRouter model IDs require version suffixes (-001) | [INS-011](INS-011-openrouter-model-ids.md) | 🟢 Active | 1 |
 | INS-012 | `response_format.type`, `Input should be 'json_schema'`, Anthropic `400` | Anthropic rejects response_format via OpenAI SDK | [INS-012](INS-012-anthropic-response-format.md) | 🟢 Active | 1 |
 | INS-013 | `localhost:9000`, `ByteString`, presigned URL, thumbnail 404 | S3 presigned URLs fail in Codespace — use proxy | [INS-013](INS-013-s3-proxy-codespace.md) | 🟢 Active | 1 |
+| INS-014 | `404`, `/dashboard/settings`, route group `(settings)` | Settings 404: route group mismatch with nav links | [INS-014](INS-014-route-group-mismatch.md) | 🟢 Active | 1 |
+| INS-015 | `downloading` stuck, YouTube URL, `safeFetch` HTML | YouTube URL download gets HTML, not video file | [INS-015](INS-015-youtube-url-download.md) | 🟢 Active | 1 |
