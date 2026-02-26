@@ -11,12 +11,16 @@ export type S3Config = {
 
 export function getS3Config(): S3Config {
   const endpoint = env.S3_ENDPOINT;
-  const accessKeyId = env.S3_ACCESS_KEY;
+  const rawAccessKey = env.S3_ACCESS_KEY;
   const secretAccessKey = env.S3_SECRET_KEY;
+  const tenantId = env.S3_TENANT_ID;
 
   if (!endpoint) throw new Error('Missing S3 configuration: S3_ENDPOINT');
-  if (!accessKeyId) throw new Error('Missing S3 configuration: S3_ACCESS_KEY');
+  if (!rawAccessKey) throw new Error('Missing S3 configuration: S3_ACCESS_KEY');
   if (!secretAccessKey) throw new Error('Missing S3 configuration: S3_SECRET_KEY');
+
+  // Cloud.ru Evolution requires access key in format "tenant_id:key_id"
+  const accessKeyId = tenantId ? `${tenantId}:${rawAccessKey}` : rawAccessKey;
 
   return {
     endpoint,
