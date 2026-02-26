@@ -58,6 +58,7 @@ enum PublicationStatus {
   publishing
   published
   failed
+  cancelled
 }
 
 enum SubscriptionStatus {
@@ -199,6 +200,7 @@ model Publication {
   likes          Int                 @default(0)
   shares         Int                 @default(0)
   lastStatsSync  DateTime?           @map("last_stats_sync")
+  errorMessage   String?             @map("error_message")
   createdAt      DateTime            @default(now()) @map("created_at")
 
   clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
@@ -253,6 +255,7 @@ model PlatformConnection {
   accessTokenEncrypted  String              @map("access_token_encrypted")
   refreshTokenEncrypted String?             @map("refresh_token_encrypted")
   expiresAt             DateTime?           @map("expires_at")
+  metadata              Json?               @default("{}")
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 

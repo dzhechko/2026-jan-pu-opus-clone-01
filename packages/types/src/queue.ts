@@ -31,14 +31,16 @@ export type PublishJobData = {
   clipId: string;
   publicationId: string;
   platform: 'vk' | 'rutube' | 'dzen' | 'telegram';
-  accessTokenEncrypted: string;
+  connectionId: string;
   filePath: string;
   title: string;
   description?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type StatsCollectJobData = {
   publicationId: string;
   platform: 'vk' | 'rutube' | 'dzen' | 'telegram';
   platformPostId: string;
+  connectionId: string;
 };
