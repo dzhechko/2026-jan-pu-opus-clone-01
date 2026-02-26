@@ -34,8 +34,11 @@ S3_TENANT_ID=
 MinIO has permissive CORS by default — no extra config needed.
 
 ## Key Insight
-Presigned URLs contain the S3 endpoint hostname. If `S3_ENDPOINT=http://localhost:9000`, the browser can't reach it. Must use the Codespace public proxy URL.
+Presigned URLs contain the S3 endpoint hostname. If `S3_ENDPOINT=http://localhost:9000`, the browser can't reach it. Even with Codespace public proxy URL, the proxy breaks S3 signatures (see INS-007).
+
+**Final solution:** Server-side upload proxy `/api/upload` (see INS-007), not browser-to-S3 presigned URLs.
 
 ## Files Changed
 - `docker-compose.yml` — added minio, minio-init
-- `.env` — S3_ENDPOINT → MinIO
+- `.env` — S3_ENDPOINT → MinIO (localhost:9000, server-side only)
+- `apps/web/app/api/upload/route.ts` — upload proxy (INS-007)
