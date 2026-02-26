@@ -55,6 +55,33 @@ export default function SettingsPage() {
           </label>
         </div>
       </section>
+
+      {/* BYOK API Keys Section */}
+      <section className="bg-white rounded-xl border p-6 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">API Ключи (BYOK)</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {provider === 'global'
+                ? 'Используйте свои API ключи для экономии на обработке'
+                : 'Доступно при выборе Global стратегии'}
+            </p>
+          </div>
+          <a
+            href="/settings/api-keys"
+            className={`text-sm px-4 py-2 rounded ${
+              provider === 'global'
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
+            onClick={(e) => {
+              if (provider !== 'global') e.preventDefault();
+            }}
+          >
+            Управление ключами
+          </a>
+        </div>
+      </section>
     </div>
   );
 }
