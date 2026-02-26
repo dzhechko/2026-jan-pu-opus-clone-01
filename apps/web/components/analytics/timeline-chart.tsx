@@ -1,5 +1,7 @@
 'use client';
 
+import { formatNumber } from './format-utils';
+
 type TimelinePoint = {
   date: string;
   views: number;
@@ -8,10 +10,6 @@ type TimelinePoint = {
 type TimelineChartProps = {
   data: TimelinePoint[];
 };
-
-function formatNumber(n: number): string {
-  return n.toLocaleString('ru-RU');
-}
 
 function formatDateLabel(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
@@ -35,7 +33,7 @@ export function TimelineChart({ data }: TimelineChartProps) {
           Всего: {formatNumber(totalViews)}
         </span>
       </div>
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
+      <div className="rounded-xl border bg-white p-6 shadow-sm overflow-hidden">
         <div
           className="flex items-end gap-[2px] h-40"
           role="img"
@@ -57,7 +55,7 @@ export function TimelineChart({ data }: TimelineChartProps) {
                   }}
                 />
                 {/* Tooltip on hover */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 pointer-events-none">
                   <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
                     {formatDateLabel(point.date)}: {formatNumber(point.views)}
                   </div>

@@ -1,3 +1,5 @@
+import { PLATFORM_LABELS, formatNumber } from './format-utils';
+
 type PlatformRow = {
   platform: string;
   publicationCount: number;
@@ -9,17 +11,6 @@ type PlatformRow = {
 type PlatformTableProps = {
   data: PlatformRow[];
 };
-
-const PLATFORM_LABELS: Record<string, string> = {
-  vk: 'VK',
-  rutube: 'Rutube',
-  dzen: 'Дзен',
-  telegram: 'Telegram',
-};
-
-function formatNumber(n: number): string {
-  return n.toLocaleString('ru-RU');
-}
 
 export function PlatformTable({ data }: PlatformTableProps) {
   if (data.length === 0) return null;

@@ -1,5 +1,6 @@
 import { EyeIcon, HeartIcon, Share2Icon, SendIcon } from 'lucide-react';
 import { StatCard } from '../dashboard/stat-card';
+import { formatNumber } from './format-utils';
 
 type OverviewCardsProps = {
   totalViews: number;
@@ -7,10 +8,6 @@ type OverviewCardsProps = {
   totalShares: number;
   publishedCount: number;
 };
-
-function formatNumber(n: number): string {
-  return n.toLocaleString('ru-RU');
-}
 
 export function OverviewCards({
   totalViews,
