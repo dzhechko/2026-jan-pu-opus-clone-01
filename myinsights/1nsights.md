@@ -11,3 +11,4 @@
 | INS-007 | `SignatureDoesNotMatch`, `presigned URL`, `checksum`, `CRC32` | S3 presigned URL fails: AWS SDK v3 auto-checksum + Codespace proxy | [INS-007](INS-007-s3-signature-mismatch.md) | 🟢 Active | 1 |
 | INS-008 | `UNAUTHORIZED`, `protectedProcedure`, `x-user-id null` | Soft-auth paths skip JWT verification → protectedProcedure fails | [INS-008](INS-008-soft-auth-missing-headers.md) | 🟢 Active | 1 |
 | INS-009 | `body exceeded 10 MB`, upload truncated, `uploading` stuck | Next.js silently truncates request body to 10 MB | [INS-009](INS-009-nextjs-body-size-limit.md) | 🟢 Active | 1 |
+| INS-010 | `spawn ffprobe ENOENT`, `stt_error`, video `failed` | ffprobe not installed in Codespace | [INS-010](INS-010-ffprobe-not-installed.md) | 🟢 Active | 1 |
