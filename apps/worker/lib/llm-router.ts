@@ -194,13 +194,16 @@ export class LLMRouter {
 
     const startTime = Date.now();
 
+    // Anthropic does not support response_format via OpenAI-compatible API
+    const supportsJsonMode = modelConfig.provider !== 'anthropic';
+
     try {
       const response = await client.chat.completions.create({
         model: modelName,
         messages,
         temperature: options?.temperature ?? 0.3,
         max_tokens: options?.maxTokens ?? 4096,
-        ...(options?.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+        ...(options?.jsonMode && supportsJsonMode ? { response_format: { type: 'json_object' as const } } : {}),
       });
 
       const durationMs = Date.now() - startTime;

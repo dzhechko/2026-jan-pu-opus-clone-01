@@ -1,4 +1,5 @@
 import { createWriteStream } from 'fs';
+import { stat } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { getObjectStream } from '@clipmaker/s3';
 import { createLogger } from './logger';
@@ -10,5 +11,6 @@ export async function downloadFromS3(s3Key: string, localPath: string): Promise<
   const readable = await getObjectStream(s3Key);
   const writable = createWriteStream(localPath);
   await pipeline(readable, writable);
-  logger.info({ event: 's3_download_complete', key: s3Key, path: localPath });
+  const { size } = await stat(localPath);
+  logger.info({ event: 's3_download_complete', key: s3Key, path: localPath, sizeBytes: size });
 }

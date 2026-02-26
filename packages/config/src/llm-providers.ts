@@ -2,10 +2,10 @@ import type { LLMProviderConfig } from '@clipmaker/types';
 
 /** Maps native model IDs to OpenRouter model IDs */
 export const OPENROUTER_MODEL_MAP: Record<string, string> = {
-  'gemini-2.0-flash-lite': 'google/gemini-2.0-flash-lite',
-  'gemini-2.0-flash': 'google/gemini-2.0-flash',
+  'gemini-2.0-flash-lite': 'google/gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash': 'google/gemini-2.0-flash-001',
   'gemini-2.5-pro': 'google/gemini-2.5-pro',
-  'claude-haiku-4.5': 'anthropic/claude-3.5-haiku',
+  'claude-haiku-4.5': 'anthropic/claude-haiku-4.5',
 };
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';

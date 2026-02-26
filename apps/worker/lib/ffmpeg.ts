@@ -420,11 +420,18 @@ export async function execFFmpeg(args: string[], timeoutMs = 30_000): Promise<vo
  * Gets the duration of a media file via ffprobe.
  */
 export async function ffprobeGetDuration(filePath: string): Promise<number> {
-  const { stdout } = await execFileAsync(
-    'ffprobe',
-    ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
-    { timeout: 10_000 },
-  );
+  let stdout: string;
+  try {
+    const result = await execFileAsync(
+      'ffprobe',
+      ['-v', 'error', '-print_format', 'json', '-show_format', filePath],
+      { timeout: 10_000 },
+    );
+    stdout = result.stdout;
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message?: string };
+    throw new Error(`ffprobe failed: ${e.stderr || e.message}`);
+  }
   const parsed = JSON.parse(stdout);
   const duration = parseFloat(parsed.format?.duration);
   if (isNaN(duration) || duration <= 0) {
