@@ -1,3 +1,9 @@
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env from monorepo root (cwd is apps/worker/ when run by turbo)
+config({ path: resolve(process.cwd(), '../../.env') });
+
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('worker-main');
@@ -11,7 +17,8 @@ async function main() {
   await import('./video-render');
   await import('./publish');
   await import('./stats-collector');
-  await import('./billing-cron');
+  // TODO: billing-cron requires ../lib/redis module (not yet created)
+  // await import('./billing-cron');
   await import('./download');
 
   logger.info({ event: 'workers_started', workers: ['stt', 'llm', 'video', 'publish', 'stats', 'billing-cron', 'download'] });

@@ -4,8 +4,8 @@ import { prisma } from '@clipmaker/db';
 import { ClipList } from '@/components/clips/clip-list';
 import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
 
-export default async function VideoDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function VideoDetailPage({ params }: { params: Promise<{ videoId: string }> }) {
+  const { videoId: id } = await params;
   const headerStore = await headers();
   const userId = headerStore.get('x-user-id');
   const userPlan = headerStore.get('x-user-plan') ?? 'free';
