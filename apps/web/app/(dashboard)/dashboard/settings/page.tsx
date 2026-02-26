@@ -68,7 +68,7 @@ export default function SettingsPage() {
             </p>
           </div>
           <a
-            href="/settings/api-keys"
+            href="/dashboard/settings/api-keys"
             className={`text-sm px-4 py-2 rounded ${
               provider === 'global'
                 ? 'bg-blue-600 text-white hover:bg-blue-700'

@@ -23,7 +23,7 @@ export default function ApiKeysPage() {
             Сейчас у вас выбрана Cloud.ru (Россия) -- все ключи предоставляются платформой.
           </p>
           <a
-            href="/settings"
+            href="/dashboard/settings"
             className="text-sm text-blue-600 hover:underline"
           >
             Переключить на Global в настройках AI-провайдера
