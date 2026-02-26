@@ -4,3 +4,4 @@ export * from './user';
 export * from './billing';
 export * from './llm';
 export * from './queue';
+export * from './byok';
