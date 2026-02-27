@@ -30,6 +30,10 @@ const STATUS_MAP: Record<VideoStatus, StatusConfig> = {
     label: 'Готово',
     className: 'bg-green-100 text-green-700',
   },
+  cancelled: {
+    label: 'Остановлено',
+    className: 'bg-yellow-100 text-yellow-700',
+  },
   failed: {
     label: 'Ошибка',
     className: 'bg-red-100 text-red-700',
