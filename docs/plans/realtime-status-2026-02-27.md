@@ -1,7 +1,7 @@
 # Plan: Real-time Video Status + Upload Redirect
 
 **Date:** 2026-02-27
-**Status:** draft
+**Status:** implemented
 **Complexity:** medium
 
 ## Context
