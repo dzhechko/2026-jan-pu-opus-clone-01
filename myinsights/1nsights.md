@@ -18,7 +18,7 @@
 | INS-014 | `404`, `/dashboard/settings`, route group `(settings)` | Settings 404: route group mismatch with nav links | [INS-014](INS-014-route-group-mismatch.md) | 🟢 Active | 1 |
 | INS-015 | `downloading` stuck, YouTube URL, `safeFetch` HTML | YouTube URL download gets HTML, not video file | [INS-015](INS-015-youtube-url-download.md) | 🟢 Active | 1 |
 | INS-016 | `platforms page not working`, `free plan`, `autoPostPlatforms` | Free plan: platform UI shows no feedback when gated | [INS-016](INS-016-free-plan-platform-gating.md) | 🟢 Active | 1 |
-| INS-017 | `Unknown field teamId`, `prisma db push already in sync`, `select` | Prisma Client stale after schema change in monorepo | [INS-017](INS-017-prisma-client-stale-monorepo.md) | 🟢 Active | 1 |
+| INS-017 | `Unknown field teamId`, `Unknown field processingProgress`, `prisma db push already in sync`, `select` | Prisma Client stale after schema change in monorepo | [INS-017](INS-017-prisma-client-stale-monorepo.md) | 🟢 Active | 2 |
 | INS-018 | `useRef Expected 1 arguments`, `Uint8Array BufferSource`, `QueueName undefined` | Pre-existing TS errors: React 19 useRef, BufferSource cast, Record index | [INS-018](INS-018-preexisting-ts-errors.md) | 🟢 Active | 2 |
 | INS-019 | `Конфигурация VK OAuth не настроена`, `VK_PUBLISH_CLIENT_ID`, `YANDEX_CLIENT_ID` | OAuth невозможен в Codespace — нужна dev-mode заглушка | [INS-019](INS-019-oauth-dev-simulation.md) | 🟢 Active | 1 |
 | INS-020 | `email not received`, `SMTP_HOST not configured`, `Ethereal` | Ethereal fake SMTP для dev-email вместо console.log | [INS-020](INS-020-ethereal-dev-email.md) | 🟢 Active | 1 |

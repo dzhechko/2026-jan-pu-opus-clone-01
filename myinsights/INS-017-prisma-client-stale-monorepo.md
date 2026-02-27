@@ -1,9 +1,10 @@
 # INS-017: Prisma Client stale after schema change in monorepo
 
-**Status:** 🟢 Active | **Hits:** 1 | **Created:** 2026-02-27
+**Status:** 🟢 Active | **Hits:** 2 | **Created:** 2026-02-27
 
 ## Error Signatures
 - `Unknown field 'teamId' for select statement on model 'User'`
+- `Unknown field 'processingProgress' for select statement on model 'Video'`
 - `prisma db push` reports "already in sync" but runtime fails
 - Any Prisma runtime error about unknown fields after schema changes
 
