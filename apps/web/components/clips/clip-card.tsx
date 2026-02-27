@@ -4,6 +4,7 @@ import { memo, useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import type { ViralityScore } from '@clipmaker/types';
 import { ScoreBadge } from './virality-breakdown';
+import { PublishDialog } from './publish-dialog';
 
 type ClipCardProps = {
   clip: {
@@ -15,7 +16,7 @@ type ClipCardProps = {
     cta: unknown;
     thumbnailUrl?: string;
     videoUrl?: string;
-    publications: Array<{ id: string }>;
+    publications: Array<{ id: string; platform: string; status: string; platformUrl?: string | null }>;
   };
   userPlan?: string;
   onDownload?: (clipId: string, clipTitle: string) => void;
@@ -41,6 +42,7 @@ export const ClipCard = memo(function ClipCard({
   onClearError,
 }: ClipCardProps) {
   const [playing, setPlaying] = useState(false);
+  const [showPublish, setShowPublish] = useState(false);
 
   const viralityScore = useMemo((): ViralityScore => {
     const score = clip.viralityScore as Partial<ViralityScore> | null;
@@ -139,41 +141,47 @@ export const ClipCard = memo(function ClipCard({
           <span className={`text-xs ${clip.status === 'failed' ? 'text-red-500' : 'text-gray-400'}`}>
             {STATUS_LABELS[clip.status] ?? clip.status}
           </span>
-          {clip.publications.length > 0 && (
-            <span className="text-xs text-gray-400">
-              {clip.publications.length} публ.
-            </span>
-          )}
         </div>
 
-        {clip.status === 'ready' && onDownload ? (
-          <button
-            onClick={handleDownloadClick}
-            disabled={isDownloading}
-            aria-label={`Скачать клип: ${clip.title}`}
-            title={userPlan === 'free' ? 'Скачать с водяным знаком' : 'Скачать MP4'}
-            className="
-              mt-3 w-full px-3 py-1.5 text-sm font-medium rounded
-              bg-blue-600 text-white
-              hover:bg-blue-700 transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed
-            "
-          >
-            {isDownloading ? 'Скачивание...' : 'Скачать'}
-          </button>
-        ) : clip.status !== 'ready' && clip.status !== 'failed' ? (
+        {clip.publications.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {clip.publications.map((pub) => (
+              <PublicationBadge key={pub.id} publication={pub} />
+            ))}
+          </div>
+        )}
+
+        {clip.status === 'ready' && (
+          <div className="mt-3 flex gap-2">
+            {onDownload && (
+              <button
+                onClick={handleDownloadClick}
+                disabled={isDownloading}
+                aria-label={`Скачать клип: ${clip.title}`}
+                title={userPlan === 'free' ? 'Скачать с водяным знаком' : 'Скачать MP4'}
+                className="flex-1 px-3 py-1.5 text-sm font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDownloading ? '...' : 'Скачать'}
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowPublish(true); }}
+              className="flex-1 px-3 py-1.5 text-sm font-medium rounded border border-green-600 text-green-600 hover:bg-green-50 transition-colors"
+            >
+              Опубликовать
+            </button>
+          </div>
+        )}
+
+        {clip.status !== 'ready' && clip.status !== 'failed' && (
           <button
             disabled
             title="Клип ещё не готов"
-            className="
-              mt-3 w-full px-3 py-1.5 text-sm font-medium rounded
-              bg-gray-100 text-gray-400
-              cursor-not-allowed
-            "
+            className="mt-3 w-full px-3 py-1.5 text-sm font-medium rounded bg-gray-100 text-gray-400 cursor-not-allowed"
           >
             Скачать
           </button>
-        ) : null}
+        )}
 
         {downloadError && (
           <div className="mt-2 flex items-center gap-1 text-xs text-red-500" role="alert">
@@ -184,6 +192,51 @@ export const ClipCard = memo(function ClipCard({
           </div>
         )}
       </div>
+
+      {showPublish && (
+        <PublishDialog
+          clipId={clip.id}
+          clipTitle={clip.title}
+          onClose={() => setShowPublish(false)}
+          onPublished={() => setShowPublish(false)}
+        />
+      )}
     </div>
   );
 });
+
+const PLATFORM_ICONS: Record<string, string> = {
+  vk: '🎬',
+  rutube: '📺',
+  dzen: '📰',
+  telegram: '✈️',
+};
+
+const PUB_STATUS_STYLES: Record<string, string> = {
+  scheduled: 'bg-yellow-50 text-yellow-700',
+  publishing: 'bg-blue-50 text-blue-700',
+  published: 'bg-green-50 text-green-700',
+  failed: 'bg-red-50 text-red-700',
+  cancelled: 'bg-gray-50 text-gray-500',
+};
+
+function PublicationBadge({ publication }: { publication: { platform: string; status: string; platformUrl?: string | null } }) {
+  const icon = PLATFORM_ICONS[publication.platform] ?? '📌';
+  const style = PUB_STATUS_STYLES[publication.status] ?? 'bg-gray-50 text-gray-500';
+
+  const badge = (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${style}`}>
+      {icon} {publication.status === 'published' ? '✓' : publication.status === 'failed' ? '✗' : '⏳'}
+    </span>
+  );
+
+  if (publication.status === 'published' && publication.platformUrl) {
+    return (
+      <a href={publication.platformUrl} target="_blank" rel="noopener noreferrer" title={`Открыть на ${publication.platform}`}>
+        {badge}
+      </a>
+    );
+  }
+
+  return badge;
+}

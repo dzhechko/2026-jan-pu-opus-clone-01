@@ -82,6 +82,23 @@ export default function SettingsPage() {
           </a>
         </div>
       </section>
+      {/* Platforms Section */}
+      <section className="bg-white rounded-xl border p-6 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Платформы для публикации</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Подключите VK, Rutube, Дзен или Telegram для авто-постинга
+            </p>
+          </div>
+          <a
+            href="/dashboard/settings/platforms"
+            className="text-sm px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Управление
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

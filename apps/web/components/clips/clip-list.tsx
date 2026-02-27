@@ -13,7 +13,7 @@ type ClipData = {
   cta: unknown;
   thumbnailUrl?: string;
   videoUrl?: string;
-  publications: Array<{ id: string }>;
+  publications: Array<{ id: string; platform: string; status: string; platformUrl?: string | null }>;
 };
 
 type ClipListProps = {
