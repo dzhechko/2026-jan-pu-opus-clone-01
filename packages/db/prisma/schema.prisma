@@ -24,6 +24,7 @@ enum VideoStatus {
   analyzing
   generating_clips
   completed
+  cancelled
   failed
 }
 

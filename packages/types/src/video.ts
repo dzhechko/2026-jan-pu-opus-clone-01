@@ -5,6 +5,7 @@ export type VideoStatus =
   | 'analyzing'
   | 'generating_clips'
   | 'completed'
+  | 'cancelled'
   | 'failed';
 
 export type VideoSourceType = 'upload' | 'url';
