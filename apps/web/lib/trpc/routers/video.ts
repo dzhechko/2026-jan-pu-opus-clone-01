@@ -251,7 +251,7 @@ export const videoRouter = router({
       });
 
       // Enqueue STT job (payload must match STTJobData type)
-      const sttQueue = createQueue(QUEUE_NAMES.STT);
+      const sttQueue = createQueue(QUEUE_NAMES.STT!);
       await sttQueue.add('stt', {
         videoId: video.id,
         filePath: video.filePath,
@@ -341,7 +341,7 @@ export const videoRouter = router({
       });
 
       // Enqueue download job for the worker to pick up
-      const downloadQueue = createQueue(QUEUE_NAMES.VIDEO_DOWNLOAD);
+      const downloadQueue = createQueue(QUEUE_NAMES.VIDEO_DOWNLOAD!);
       await downloadQueue.add('video-download', {
         videoId: video.id,
         url: input.url,

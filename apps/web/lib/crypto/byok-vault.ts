@@ -215,7 +215,7 @@ export async function unlockVault(password: string): Promise<void> {
   masterKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },

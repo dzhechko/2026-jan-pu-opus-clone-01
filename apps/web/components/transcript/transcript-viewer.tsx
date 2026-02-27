@@ -34,7 +34,7 @@ export function TranscriptViewer({ videoId, videoStatus, currentTime = 0 }: Tran
   const [pendingEdits, setPendingEdits] = useState<Map<number, string>>(new Map());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const containerRef = useRef<HTMLDivElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const {
     data,
