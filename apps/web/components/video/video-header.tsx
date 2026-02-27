@@ -15,10 +15,17 @@ type VideoHeaderProps = {
 export function VideoHeader({ videoId, title, status, durationSeconds, sttModel }: VideoHeaderProps) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
+  const utils = trpc.useUtils();
 
   const deleteMutation = trpc.video.delete.useMutation({
     onSuccess: () => {
       router.push('/dashboard');
+    },
+  });
+
+  const reprocessMutation = trpc.video.reprocess.useMutation({
+    onSuccess: () => {
+      utils.video.get.invalidate({ id: videoId });
     },
   });
 
@@ -35,6 +42,16 @@ export function VideoHeader({ videoId, title, status, durationSeconds, sttModel 
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {status === 'failed' && (
+            <button
+              type="button"
+              onClick={() => reprocessMutation.mutate({ videoId })}
+              disabled={reprocessMutation.isPending}
+              className="px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {reprocessMutation.isPending ? 'Запуск...' : 'Перезапустить'}
+            </button>
+          )}
           {!confirming ? (
             <button
               type="button"
@@ -70,6 +87,11 @@ export function VideoHeader({ videoId, title, status, durationSeconds, sttModel 
       {deleteMutation.isError && (
         <p className="mt-2 text-sm text-red-500">
           Ошибка удаления: {deleteMutation.error.message}
+        </p>
+      )}
+      {reprocessMutation.isError && (
+        <p className="mt-2 text-sm text-red-500">
+          Ошибка перезапуска: {reprocessMutation.error.message}
         </p>
       )}
     </div>

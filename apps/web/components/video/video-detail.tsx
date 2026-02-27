@@ -73,13 +73,8 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
         </div>
       )}
 
-      {video.status === 'failed' && video.errorMessage && (
-        <div className="mb-6 p-4 bg-red-50 rounded-lg">
-          <p className="text-sm text-red-700">
-            <span className="font-medium">Ошибка обработки:</span>{' '}
-            {video.errorMessage}
-          </p>
-        </div>
+      {video.status === 'failed' && (
+        <FailedBlock videoId={video.id} errorMessage={video.errorMessage} />
       )}
 
       <div className="space-y-6">
@@ -91,6 +86,38 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
           userPlan={userPlan}
         />
       </div>
+    </div>
+  );
+}
+
+function FailedBlock({ videoId, errorMessage }: { videoId: string; errorMessage: string | null }) {
+  const utils = trpc.useUtils();
+  const reprocessMutation = trpc.video.reprocess.useMutation({
+    onSuccess: () => {
+      utils.video.get.invalidate({ id: videoId });
+    },
+  });
+
+  return (
+    <div className="mb-6 p-4 bg-red-50 rounded-lg">
+      {errorMessage && (
+        <p className="text-sm text-red-700 mb-3">
+          <span className="font-medium">Ошибка обработки:</span> {errorMessage}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => reprocessMutation.mutate({ videoId })}
+        disabled={reprocessMutation.isPending}
+        className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+      >
+        {reprocessMutation.isPending ? 'Запуск...' : 'Перезапустить обработку'}
+      </button>
+      {reprocessMutation.isError && (
+        <p className="mt-2 text-sm text-red-600">
+          {reprocessMutation.error.message}
+        </p>
+      )}
     </div>
   );
 }

@@ -293,6 +293,107 @@ export const videoRouter = router({
       return { deleted: true };
     }),
 
+  reprocess: protectedProcedure
+    .input(z.object({ videoId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      await checkRateLimit('upload', userId, 10, 3600);
+
+      const video = await ctx.prisma.video.findFirst({
+        where: { id: input.videoId, userId },
+        include: {
+          transcript: true,
+          clips: { select: { id: true, filePath: true, thumbnailPath: true } },
+        },
+      });
+
+      if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
+
+      if (video.status !== 'failed') {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Перезапуск возможен только для видео со статусом "ошибка"' });
+      }
+
+      if (!video.filePath) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Исходный файл не загружен' });
+      }
+
+      // Determine restart stage
+      const hasTranscript = !!video.transcript;
+      const hasClips = video.clips.length > 0;
+
+      // If transcript exists and no clips → restart from LLM analysis
+      // Otherwise → full restart from STT (simplest and most reliable)
+      const restartFromLLM = hasTranscript && !hasClips;
+
+      // Cleanup old data
+      if (hasClips) {
+        const s3Keys: string[] = [];
+        for (const clip of video.clips) {
+          if (clip.filePath) s3Keys.push(clip.filePath);
+          if (clip.thumbnailPath) s3Keys.push(clip.thumbnailPath);
+        }
+        await Promise.allSettled(s3Keys.map((key) => deleteObject(key)));
+        await ctx.prisma.clip.deleteMany({ where: { videoId: video.id } });
+      }
+
+      if (!restartFromLLM && hasTranscript) {
+        await ctx.prisma.transcript.delete({ where: { videoId: video.id } });
+      }
+
+      const strategy = video.llmProviderUsed ?? 'ru';
+
+      if (restartFromLLM) {
+        // Restart from LLM moment selection — transcript already exists
+        await ctx.prisma.video.update({
+          where: { id: video.id },
+          data: {
+            status: 'analyzing',
+            processingProgress: 0,
+            processingStage: null,
+            errorMessage: null,
+          },
+        });
+
+        const user = await ctx.prisma.user.findUnique({ where: { id: userId } });
+        const llmQueue = createQueue(QUEUE_NAMES.LLM!);
+        await llmQueue.add('llm:moment_selection', {
+          videoId: video.id,
+          task: 'moment_selection' as const,
+          strategy,
+          input: {
+            fullText: video.transcript!.fullText,
+            tokenCount: video.transcript!.tokenCount,
+            planId: user?.planId ?? 'free',
+            videoDurationSeconds: Math.round(video.durationSeconds ?? 0),
+          },
+        }, DEFAULT_JOB_OPTIONS);
+
+        return { status: 'reprocessing' as const, stage: 'analyzing' as const };
+      }
+
+      // Full restart from STT
+      await ctx.prisma.video.update({
+        where: { id: video.id },
+        data: {
+          status: 'transcribing',
+          processingProgress: 0,
+          processingStage: null,
+          errorMessage: null,
+        },
+      });
+
+      const sttQueue = createQueue(QUEUE_NAMES.STT!);
+      await sttQueue.add('stt', {
+        videoId: video.id,
+        filePath: video.filePath,
+        strategy,
+        language: 'ru',
+      }, DEFAULT_JOB_OPTIONS);
+
+      return { status: 'reprocessing' as const, stage: 'transcribing' as const };
+    }),
+
   createFromUrl: protectedProcedure
     .input(
       z.object({
