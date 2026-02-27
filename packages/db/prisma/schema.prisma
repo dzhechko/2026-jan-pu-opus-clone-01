@@ -92,6 +92,18 @@ enum PlanId {
   business
 }
 
+enum TeamRole {
+  owner
+  admin
+  member
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  expired
+}
+
 model User {
   id                      String                @id @default(uuid()) @db.Uuid
   email                   String                @unique
@@ -109,20 +121,26 @@ model User {
   createdAt               DateTime               @default(now()) @map("created_at")
   updatedAt               DateTime               @updatedAt @map("updated_at")
 
+  teamId                  String?               @map("team_id") @db.Uuid
+
   videos              Video[]
   clips               Clip[]
   subscription        Subscription?
   payments            Payment[]
   usageRecords        UsageRecord[]
   platformConnections PlatformConnection[]
+  team                Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamMemberships     TeamMember[]
 
   @@index([email])
+  @@index([teamId])
   @@map("users")
 }
 
 model Video {
   id                    String        @id @default(uuid()) @db.Uuid
   userId                String        @map("user_id") @db.Uuid
+  teamId                String?       @map("team_id") @db.Uuid
   title                 String
   sourceType            VideoSourceType @map("source_type")
   sourceUrl             String?       @map("source_url")
@@ -136,10 +154,12 @@ model Video {
   updatedAt             DateTime      @updatedAt @map("updated_at")
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team       Team?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
   transcript Transcript?
   clips      Clip[]
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([teamId])
   @@map("videos")
 }
 
@@ -287,4 +307,51 @@ model Payment {
 
   @@index([userId])
   @@map("payments")
+}
+
+model Team {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  ownerId   String   @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members User[]
+  teamMembers TeamMember[]
+  invites TeamInvite[]
+  videos  Video[]
+
+  @@index([ownerId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      TeamRole @default(member)
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model TeamInvite {
+  id        String       @id @default(uuid()) @db.Uuid
+  teamId    String       @map("team_id") @db.Uuid
+  email     String
+  token     String       @unique
+  role      TeamRole     @default(member)
+  status    InviteStatus @default(pending)
+  expiresAt DateTime     @map("expires_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([teamId])
+  @@map("team_invites")
 }
