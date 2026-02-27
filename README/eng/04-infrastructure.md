@@ -504,3 +504,24 @@ Browser --> https://clipmaker.example.com (nginx --> Next.js)
 | **Production (Growth)** | 8 cores | 16 GB | 250 GB NVMe | 1 Gbps |
 
 Development does not require high bandwidth since all services are local. Production requires sufficient bandwidth for video uploads (up to 4 GB) and clip delivery.
+
+### Video Upload Performance: Dev vs Prod
+
+Video upload in the Dev environment (Codespace) is **significantly slower** due to architectural constraints:
+
+| Parameter | Dev (Codespace) | Production (VPS) |
+|-----------|-----------------|-------------------|
+| **Upload path** | Browser → Next.js API (RAM buffer) → MinIO | Browser → presigned URL → S3 directly |
+| **Chunk size** | 14 MB (Codespace proxy ~16 MB limit) | Up to 100 MB |
+| **Chunks for 500 MB file** | ~36 HTTP round-trips | ~5 HTTP round-trips |
+| **Concurrent chunks** | 3 | 5-6 (configurable) |
+| **Buffering** | Double (Next.js + S3) | None (direct upload) |
+| **Expected time (500 MB)** | 10-20 min | 1-3 min |
+
+**Root causes:**
+1. **Proxy chain** — MinIO at `localhost:9000` is unreachable from the browser; all requests go through `/api/upload`
+2. **`arrayBuffer()` buffering** — each chunk is fully loaded into server RAM before forwarding to S3
+3. **Codespace proxy** — limits request body size to ~16 MB
+4. **No presigned URLs** — due to CORS issues, signature mismatch, and localhost restrictions
+
+> **This is expected dev-environment behavior, not a bug.** In production, all limitations are removed: `NEXT_PUBLIC_USE_S3_PROXY=false` enables direct browser-to-S3 upload via presigned URLs.
