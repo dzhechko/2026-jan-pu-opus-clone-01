@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@clipmaker/db';
 import { newPasswordSchema } from '@/lib/auth/schemas';
 import { verifyToken } from '@/lib/auth/jwt';

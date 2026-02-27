@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import { encryptToken } from '@clipmaker/crypto';
 import { prisma } from '@clipmaker/db';
 import { getOAuthRedis } from '@/lib/redis';

@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+import type { Readable } from 'stream';
 import { getS3Client, getBucket } from './client';
 
 function isS3Error(error: unknown): error is { name: string; $metadata?: { httpStatusCode?: number } } {
@@ -83,7 +84,7 @@ export async function putObject(
   );
 }
 
-export async function getObjectStream(key: string): Promise<import('stream').Readable> {
+export async function getObjectStream(key: string): Promise<Readable> {
   const s3 = getS3Client();
   const result = await withRetry(() =>
     s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: key })),
@@ -92,7 +93,7 @@ export async function getObjectStream(key: string): Promise<import('stream').Rea
     throw new Error(`Object body is empty: ${key}`);
   }
   // AWS SDK v3 Body in Node.js context is Readable
-  return result.Body as unknown as import('stream').Readable;
+  return result.Body as unknown as Readable;
 }
 
 export async function deleteObject(key: string): Promise<void> {

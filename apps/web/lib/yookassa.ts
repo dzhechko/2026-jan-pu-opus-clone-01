@@ -1,5 +1,4 @@
 import type { PlanId } from '@clipmaker/types';
-import { PLAN_CONFIG } from '@clipmaker/types';
 
 // ---------------------------------------------------------------------------
 // ЮKassa Configuration

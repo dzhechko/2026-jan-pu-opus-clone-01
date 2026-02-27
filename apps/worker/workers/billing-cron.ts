@@ -48,7 +48,7 @@ async function billingPeriodReset() {
   let cursor: string | undefined;
   let processed = 0;
 
-  while (true) {
+  for (;;) {
     const expiredSubs = await prisma.subscription.findMany({
       where: {
         currentPeriodEnd: { lte: now },

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import archiver from 'archiver';
 import { prisma } from '@clipmaker/db';
 import { getObjectStream } from '@clipmaker/s3';
@@ -10,6 +11,7 @@ const UUID_REGEX =
 function sanitizeFilename(name: string): string {
   return (
     name
+      // eslint-disable-next-line no-control-regex -- intentional: strip control chars for security
       .replace(/[<>:"/\\|?*;\x00-\x1F]/g, '')
       .replace(/\s+/g, '_')
       .slice(0, 100) || 'clip'
@@ -85,7 +87,7 @@ export async function GET(
   // Deduplicate filenames
   const usedNames = new Set<string>();
   function uniqueFilename(title: string): string {
-    let base = sanitizeFilename(title);
+    const base = sanitizeFilename(title);
     let name = `${base}.mp4`;
     let i = 2;
     while (usedNames.has(name)) {

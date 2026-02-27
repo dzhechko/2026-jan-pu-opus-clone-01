@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import type { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_MAX_AGE, REFRESH_TOKEN_MAX_AGE, REMEMBER_ME_MAX_AGE } from './jwt';
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';

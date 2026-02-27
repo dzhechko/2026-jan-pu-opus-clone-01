@@ -1,7 +1,8 @@
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 min timeout
 
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import { PutObjectCommand, UploadPartCommand } from '@aws-sdk/client-s3';
 import { getS3Client, getBucket } from '@clipmaker/s3';
 

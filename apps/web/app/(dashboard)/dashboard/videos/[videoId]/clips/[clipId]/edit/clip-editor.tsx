@@ -44,7 +44,7 @@ export function ClipEditor({
   // pass new props but the store updates via markSaved/polling instead
   const useStore = useMemo(
     () => createClipEditorStore(initialClip),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line -- store intentionally created once on mount
     [],
   );
 

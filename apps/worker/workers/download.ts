@@ -246,7 +246,7 @@ const worker = new Worker<VideoDownloadJobData>(
       try {
         const reader = response.body.getReader();
 
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
 

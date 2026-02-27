@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import { Readable } from 'stream';
 import { prisma } from '@clipmaker/db';
 import { getObjectStream } from '@clipmaker/s3';
 
 function sanitizeFilename(name: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional: strip control chars for security
   return name.replace(/[<>:"/\\|?*;\x00-\x1F]/g, '').replace(/\s+/g, '_').slice(0, 100) || 'clip';
 }
 

@@ -154,7 +154,7 @@ export async function safeFetch(
   let currentUrl = url;
   let redirectCount = 0;
 
-  while (true) {
+  for (;;) {
     const safety = await validateUrlSafety(currentUrl);
     if (!safety.safe) {
       throw new Error(safety.reason);

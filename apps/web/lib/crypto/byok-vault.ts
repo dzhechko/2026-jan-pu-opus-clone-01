@@ -47,71 +47,55 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-function idbGet<T>(storeName: string, key: string): Promise<T | undefined> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const db = await openDB();
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const request = store.get(key);
-      request.onsuccess = () => resolve(request.result as T | undefined);
-      request.onerror = () => reject(new Error('IndexedDB get failed'));
-      tx.oncomplete = () => db.close();
-    } catch (err) {
-      reject(err);
-    }
+async function idbGet<T>(storeName: string, key: string): Promise<T | undefined> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result as T | undefined);
+    request.onerror = () => reject(new Error('IndexedDB get failed'));
+    tx.oncomplete = () => db.close();
   });
 }
 
-function idbPut(storeName: string, value: unknown): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const db = await openDB();
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      store.put(value);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(new Error('IndexedDB put failed'));
-    } catch (err) {
-      reject(err);
-    }
+async function idbPut(storeName: string, value: unknown): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    store.put(value);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => reject(new Error('IndexedDB put failed'));
   });
 }
 
-function idbDelete(storeName: string, key: string): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const db = await openDB();
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      store.delete(key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(new Error('IndexedDB delete failed'));
-    } catch (err) {
-      reject(err);
-    }
+async function idbDelete(storeName: string, key: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    store.delete(key);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => reject(new Error('IndexedDB delete failed'));
   });
 }
 
-function idbGetAll<T>(storeName: string): Promise<T[]> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const db = await openDB();
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result as T[]);
-      request.onerror = () => reject(new Error('IndexedDB getAll failed'));
-      tx.oncomplete = () => db.close();
-    } catch (err) {
-      reject(err);
-    }
+async function idbGetAll<T>(storeName: string): Promise<T[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result as T[]);
+    request.onerror = () => reject(new Error('IndexedDB getAll failed'));
+    tx.oncomplete = () => db.close();
   });
 }
 

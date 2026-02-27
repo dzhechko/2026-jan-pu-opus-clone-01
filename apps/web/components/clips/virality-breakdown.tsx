@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useMemo } from 'react';
+import { memo, useState } from 'react';
 import type { ViralityScore } from '@clipmaker/types';
 
 const DIMENSIONS = [

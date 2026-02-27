@@ -1,4 +1,5 @@
-import { Worker, Job, UnrecoverableError } from 'bullmq';
+import { Worker, UnrecoverableError } from 'bullmq';
+import type { Job } from 'bullmq';
 import { mkdtemp, rm, writeFile, readFile, unlink, rename } from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -19,7 +20,6 @@ import {
   concatClipAndCta,
   generateThumbnail,
   FORMAT_DIMENSIONS,
-  type ClipFormat,
 } from '../lib/ffmpeg';
 
 const logger = createLogger('worker-video-render');

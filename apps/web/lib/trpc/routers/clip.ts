@@ -473,7 +473,7 @@ export const clipRouter = router({
 
       // 7. Create publications in a transaction
       const publications = await ctx.prisma.$transaction(
-        connections.map(({ platform, connectionId }) =>
+        connections.map(({ platform, connectionId: _connectionId }) =>
           ctx.prisma.publication.create({
             data: {
               clipId: clip.id,

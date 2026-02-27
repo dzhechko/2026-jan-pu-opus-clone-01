@@ -5,6 +5,7 @@ import { TRPCError } from '@trpc/server';
 import { PLANS } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
 import { encryptToken, decryptToken } from '@clipmaker/crypto';
+import type { PrismaClient } from '@prisma/client';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
 import { createQueue, QUEUE_NAMES } from '@clipmaker/queue';
 import { getOAuthRedis } from '@/lib/redis';
@@ -109,7 +110,7 @@ async function validateTelegramToken(
  * Only used when OAuth credentials are not configured in development.
  */
 async function simulateOAuthConnect(
-  ctx: { prisma: typeof import('@clipmaker/db').prisma },
+  ctx: { prisma: PrismaClient },
   userId: string,
   platform: 'vk' | 'dzen',
   accountName: string,

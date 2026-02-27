@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest} from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@clipmaker/db';
 import { PLAN_CONFIG, PLAN_DISPLAY_NAMES } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
-import { isYookassaIp, formatRubles } from '@/lib/yookassa';
+import { isYookassaIp } from '@/lib/yookassa';
 import { sendEmail, paymentSucceededEmail } from '@/lib/auth/email';
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,8 @@ import path from 'path';
 import os from 'os';
 import pMap from 'p-map';
 import type { STTJobData, TranscriptSegment } from '@clipmaker/types';
+import type { Prisma } from '@prisma/client';
+type JsonArray = Prisma.JsonArray;
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 import { createQueue, getRedisConnection } from '@clipmaker/queue/src/queues';
 import { prisma } from '@clipmaker/db';
@@ -153,7 +155,7 @@ const worker = new Worker<STTJobData>(
           data: {
             videoId: video.id,
             language,
-            segments: allSegments as unknown as import('@prisma/client').Prisma.JsonArray,
+            segments: allSegments as unknown as JsonArray,
             fullText,
             tokenCount,
             sttModel: sttConfig.model,
