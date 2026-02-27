@@ -4,6 +4,7 @@ import { prisma } from '@clipmaker/db';
 import { resetPasswordSchema } from '@/lib/auth/schemas';
 import { signResetToken } from '@/lib/auth/jwt';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
+import { sendEmail, resetPasswordEmail } from '@/lib/auth/email';
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,8 +41,7 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
     const resetLink = `${baseUrl}/reset-password?token=${resetToken}`;
 
-    // TODO: Replace with actual email sending (e.g., Resend, SendGrid)
-    console.log(`[RESET PASSWORD] ${user.email}: ${resetLink}`);
+    await sendEmail(resetPasswordEmail(user.email, resetLink));
 
     return successResponse;
   } catch (error) {

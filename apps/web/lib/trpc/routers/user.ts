@@ -5,6 +5,7 @@ import { registerSchema } from '@/lib/auth/schemas';
 import { hashPassword } from '@/lib/auth/password';
 import { signVerificationToken } from '@/lib/auth/jwt';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
+import { sendEmail, verificationEmail } from '@/lib/auth/email';
 import { encryptToken } from '@clipmaker/crypto';
 import type { ByokProvider } from '@clipmaker/types';
 import { Redis } from 'ioredis';
@@ -63,8 +64,7 @@ export const userRouter = router({
       const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
       const verificationLink = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`;
 
-      // TODO: Replace with actual email sending (e.g., Resend, SendGrid)
-      console.log(`[VERIFY EMAIL] ${user.email}: ${verificationLink}`);
+      await sendEmail(verificationEmail(user.email, verificationLink));
 
       return {
         message:
