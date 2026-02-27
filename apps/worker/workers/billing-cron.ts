@@ -1,10 +1,18 @@
 import { Worker, type Job } from 'bullmq';
 import { prisma } from '@clipmaker/db';
-import { PLAN_CONFIG } from '@clipmaker/types';
+import { PLAN_CONFIG, PLAN_DISPLAY_NAMES } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
 import { getRedisConnection } from '@clipmaker/queue/src/queues';
 import { QUEUE_NAMES } from '@clipmaker/queue/src/constants';
 import { createLogger } from '../lib/logger';
+import { createAutoRenewalPayment } from '../lib/yookassa';
+import {
+  sendEmail,
+  subscriptionRenewalReminderEmail,
+  subscriptionExpiredEmail,
+  subscriptionDowngradedEmail,
+  paymentFailedEmail,
+} from '../lib/email';
 
 const logger = createLogger('billing-cron');
 
@@ -80,10 +88,21 @@ async function processExpiredSubscription(
   sub: SubscriptionRecord,
   now: Date,
 ) {
+  const user = await prisma.user.findUnique({
+    where: { id: sub.userId },
+    select: { email: true, planId: true },
+  });
+  const email = user?.email ?? '';
+  const planId = (sub.planId ?? user?.planId ?? 'free') as PlanId;
+  const planName = PLAN_DISPLAY_NAMES[planId] ?? planId;
+
   // Case 1: User cancelled — downgrade to free
   if (sub.cancelAtPeriodEnd) {
     await downgradeToFree(sub, now);
     logger.info({ event: 'subscription_expired_cancelled', userId: sub.userId });
+    if (email) {
+      await sendEmailSafe(subscriptionDowngradedEmail(email));
+    }
     return;
   }
 
@@ -97,36 +116,110 @@ async function processExpiredSubscription(
     if (daysSincePastDue >= GRACE_PERIOD_DAYS) {
       await downgradeToFree(sub, now);
       logger.info({ event: 'subscription_grace_period_expired', userId: sub.userId, daysSincePastDue });
+      if (email) {
+        await sendEmailSafe(subscriptionDowngradedEmail(email));
+      }
       return;
     }
 
-    // Within grace period — no action (user must renew manually or wait for retry)
+    // Within grace period — send reminder if not already sent today
     logger.info({ event: 'subscription_in_grace_period', userId: sub.userId, daysSincePastDue });
+    if (email && daysSincePastDue > 0) {
+      const daysLeft = GRACE_PERIOD_DAYS - daysSincePastDue;
+      await sendEmailSafe(subscriptionRenewalReminderEmail(email, planName, daysLeft));
+    }
     return;
   }
 
-  // Case 3: Active subscription expired — check if auto-renewal is possible
+  // Case 3: Active subscription expired — attempt auto-renewal
   const savedMethodId = sub.externalSubscriptionId;
   if (!savedMethodId) {
-    // No saved method (СБП) — mark past_due
+    // No saved payment method (СБП or first-time) — mark past_due and notify
     await prisma.subscription.update({
       where: { id: sub.id },
       data: { status: 'past_due', statusChangedAt: now },
     });
     logger.info({ event: 'subscription_past_due_no_method', userId: sub.userId });
-    // TODO: Send renewal reminder email
+    if (email) {
+      await sendEmailSafe(subscriptionExpiredEmail(email, planName));
+    }
     return;
   }
 
-  // Auto-renewal would create a ЮKassa payment here.
-  // Since we don't have ЮKassa credentials in the worker process,
-  // we mark as past_due and let the user renew via the billing page.
-  // In production, this would call the ЮKassa API directly.
-  await prisma.subscription.update({
-    where: { id: sub.id },
-    data: { status: 'past_due', statusChangedAt: now },
-  });
-  logger.info({ event: 'subscription_renewal_pending', userId: sub.userId });
+  // Has saved payment method — try auto-renewal via ЮKassa
+  const price = PLAN_CONFIG[planId]?.price;
+  if (!price || !email) {
+    // No price (free plan?) or no email — mark past_due
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: 'past_due', statusChangedAt: now },
+    });
+    logger.info({ event: 'subscription_renewal_skipped_no_price', userId: sub.userId, planId });
+    return;
+  }
+
+  try {
+    // Create local Payment record BEFORE calling ЮKassa (webhook race condition)
+    const today = now.toISOString().slice(0, 10);
+    const idempotenceKey = `renewal-${sub.userId}-${planId}-${today}`;
+
+    const payment = await prisma.payment.create({
+      data: {
+        userId: sub.userId,
+        externalId: `pending-renewal-${sub.userId}-${today}`,
+        idempotenceKey,
+        type: 'subscription',
+        planId,
+        amount: price,
+        currency: 'RUB',
+        status: 'pending',
+        paymentMethod: 'card',
+        description: `Автопродление ${planName} (1 мес)`,
+        metadata: { userId: sub.userId, planId, type: 'subscription' },
+      },
+    });
+
+    // Call ЮKassa API
+    const yooResult = await createAutoRenewalPayment({
+      paymentMethodId: savedMethodId,
+      amount: price,
+      userId: sub.userId,
+      planId,
+      email,
+    });
+
+    // Update local Payment with real ЮKassa ID
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { externalId: yooResult.id },
+    });
+
+    logger.info({
+      event: 'subscription_auto_renewal_created',
+      userId: sub.userId,
+      paymentId: yooResult.id,
+      status: yooResult.status,
+    });
+
+    // If payment is immediately succeeded (rare for cards, but possible)
+    // The webhook will handle the actual subscription update
+  } catch (err) {
+    // Auto-renewal failed — mark past_due and notify user
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: 'past_due', statusChangedAt: now },
+    });
+
+    logger.error({
+      event: 'subscription_auto_renewal_failed',
+      userId: sub.userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+
+    if (email) {
+      await sendEmailSafe(paymentFailedEmail(email, planName));
+    }
+  }
 }
 
 async function downgradeToFree(sub: SubscriptionRecord, now: Date) {
@@ -145,6 +238,20 @@ async function downgradeToFree(sub: SubscriptionRecord, now: Date) {
       },
     }),
   ]);
+}
+
+/** Fire-and-forget email — never let email failures break the billing flow. */
+async function sendEmailSafe(options: { to: string; subject: string; html: string }) {
+  try {
+    await sendEmail(options);
+  } catch (err) {
+    logger.error({
+      event: 'email_send_failed',
+      to: options.to,
+      subject: options.subject,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export { worker };

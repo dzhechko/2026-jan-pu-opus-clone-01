@@ -5,7 +5,7 @@ import { registerSchema } from '@/lib/auth/schemas';
 import { hashPassword } from '@/lib/auth/password';
 import { signVerificationToken } from '@/lib/auth/jwt';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
-import { sendEmail, verificationEmail } from '@/lib/auth/email';
+import { sendEmail, verificationEmail, duplicateRegistrationEmail } from '@/lib/auth/email';
 import { encryptToken } from '@clipmaker/crypto';
 import type { ByokProvider } from '@clipmaker/types';
 import { Redis } from 'ioredis';
@@ -26,7 +26,8 @@ export const userRouter = router({
       // Don't leak email existence — return same message regardless.
       // If user exists, silently skip creation but still return success.
       if (existing) {
-        // TODO: Send "someone tried to register with your email" notification
+        // Security notification — fire-and-forget (don't leak existence via timing)
+        sendEmail(duplicateRegistrationEmail(normalizedEmail)).catch(() => {});
         return {
           message:
             'Проверьте почту для подтверждения email.',

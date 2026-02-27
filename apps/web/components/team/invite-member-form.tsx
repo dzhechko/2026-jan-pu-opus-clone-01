@@ -75,7 +75,25 @@ export function InviteMemberForm({ teamId }: InviteMemberFormProps) {
         <p className="mt-2 text-sm text-red-600">{invite.error.message}</p>
       )}
       {invite.isSuccess && (
-        <p className="mt-2 text-sm text-green-600">Приглашение отправлено!</p>
+        <div className="mt-2">
+          <p className="text-sm text-green-600">Приглашение отправлено!</p>
+          {invite.data?.inviteLink && (
+            <div className="mt-1 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+              <span className="text-blue-700 font-medium">Dev mode — </span>
+              <a href={invite.data.inviteLink} className="text-blue-600 underline break-all" target="_blank" rel="noreferrer">
+                {invite.data.inviteLink}
+              </a>
+              {invite.data.emailPreviewUrl && (
+                <span className="block mt-1">
+                  <span className="text-blue-700">Email preview: </span>
+                  <a href={invite.data.emailPreviewUrl} className="text-blue-600 underline break-all" target="_blank" rel="noreferrer">
+                    Открыть письмо
+                  </a>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

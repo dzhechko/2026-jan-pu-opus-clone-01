@@ -218,13 +218,17 @@ export const teamRouter = router({
       });
       const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
       const inviteLink = `${baseUrl}/invite?token=${token}`;
-      await sendEmail(teamInviteEmail(normalizedEmail, team?.name ?? 'Команда', inviteLink));
+      const emailResult = await sendEmail(teamInviteEmail(normalizedEmail, team?.name ?? 'Команда', inviteLink));
 
       return {
         id: invite.id,
         email: invite.email,
         role: invite.role,
         expiresAt: invite.expiresAt,
+        // Dev mode: include invite link and email preview URL for testing
+        ...(process.env.NODE_ENV === 'development'
+          ? { inviteLink, emailPreviewUrl: emailResult.previewUrl }
+          : {}),
       };
     }),
 

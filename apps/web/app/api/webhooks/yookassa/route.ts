@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@clipmaker/db';
-import { PLAN_CONFIG } from '@clipmaker/types';
+import { PLAN_CONFIG, PLAN_DISPLAY_NAMES } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
-import { isYookassaIp } from '@/lib/yookassa';
+import { isYookassaIp, formatRubles } from '@/lib/yookassa';
+import { sendEmail, paymentSucceededEmail } from '@/lib/auth/email';
 
 // ---------------------------------------------------------------------------
 // Webhook Payload Schema (Zod)
@@ -225,6 +226,21 @@ async function handlePaymentSucceeded(
       }
     }
   });
+
+  // Send payment confirmation email (fire-and-forget, outside transaction)
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: payment.userId },
+      select: { email: true },
+    });
+    if (user?.email && payment.type === 'subscription' && isValidPlanId(payment.planId)) {
+      const planName = PLAN_DISPLAY_NAMES[payment.planId];
+      const amountRubles = Math.round(payment.amount / 100);
+      await sendEmail(paymentSucceededEmail(user.email, planName, amountRubles));
+    }
+  } catch {
+    // Non-critical: don't fail the webhook for email errors
+  }
 }
 
 async function handlePaymentCancelled(payment: PaymentRecord) {
