@@ -139,10 +139,16 @@ export const clipRouter = router({
 
       // C6: Enqueue render job when time changes require re-render
       if (needsRerender) {
-        const fullClip = await ctx.prisma.clip.findUnique({
-          where: { id: input.id },
-          include: { video: true },
-        });
+        const [fullClip, renderUser] = await Promise.all([
+          ctx.prisma.clip.findUnique({
+            where: { id: input.id },
+            include: { video: true },
+          }),
+          ctx.prisma.user.findUnique({
+            where: { id: userId },
+            select: { planId: true },
+          }),
+        ]);
         if (fullClip?.video) {
           const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER!);
           await renderQueue.add('render', {
@@ -154,7 +160,7 @@ export const clipRouter = router({
             format: fullClip.format,
             subtitleSegments: fullClip.subtitleSegments,
             cta: fullClip.cta,
-            watermark: false,
+            watermark: renderUser?.planId === 'free',
           }, DEFAULT_JOB_OPTIONS);
         }
       }
@@ -313,10 +319,16 @@ export const clipRouter = router({
 
       // Queue render job if needed
       if (needsReRender) {
-        const fullClip = await ctx.prisma.clip.findUnique({
-          where: { id: input.id },
-          include: { video: true },
-        });
+        const [fullClip, renderUser] = await Promise.all([
+          ctx.prisma.clip.findUnique({
+            where: { id: input.id },
+            include: { video: true },
+          }),
+          ctx.prisma.user.findUnique({
+            where: { id: userId },
+            select: { planId: true },
+          }),
+        ]);
         if (fullClip?.video) {
           const renderQueue = createQueue(QUEUE_NAMES.VIDEO_RENDER!);
           await renderQueue.add(
@@ -330,7 +342,7 @@ export const clipRouter = router({
               format: fullClip.format,
               subtitleSegments: fullClip.subtitleSegments,
               cta: fullClip.cta,
-              watermark: false,
+              watermark: renderUser?.planId === 'free',
             },
             DEFAULT_JOB_OPTIONS,
           );
