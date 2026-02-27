@@ -2,9 +2,9 @@ import { Worker, type Job } from 'bullmq';
 import { prisma } from '@clipmaker/db';
 import { PLAN_CONFIG } from '@clipmaker/types';
 import type { PlanId } from '@clipmaker/types';
-import { QUEUE_NAMES } from '@clipmaker/queue';
+import { getRedisConnection } from '@clipmaker/queue/src/queues';
+import { QUEUE_NAMES } from '@clipmaker/queue/src/constants';
 import { createLogger } from '../lib/logger';
-import { getRedisConnection } from '../lib/redis';
 
 const logger = createLogger('billing-cron');
 
@@ -18,7 +18,7 @@ const BATCH_SIZE = 100;
 const connection = getRedisConnection();
 
 const worker = new Worker(
-  QUEUE_NAMES.BILLING_CRON,
+  QUEUE_NAMES.BILLING_CRON!,
   async (job: Job) => {
     logger.info({ event: 'billing_cron_start', jobId: job.id });
     await billingPeriodReset();

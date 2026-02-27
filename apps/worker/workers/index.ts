@@ -17,8 +17,7 @@ async function main() {
   await import('./video-render');
   await import('./publish');
   await import('./stats-collector');
-  // TODO: billing-cron requires ../lib/redis module (not yet created)
-  // await import('./billing-cron');
+  await import('./billing-cron');
   await import('./download');
 
   logger.info({ event: 'workers_started', workers: ['stt', 'llm', 'video', 'publish', 'stats', 'billing-cron', 'download'] });
