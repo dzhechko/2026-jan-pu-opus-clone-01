@@ -14,7 +14,7 @@ import {
   deleteObject,
   validateMagicBytes,
 } from '@clipmaker/s3';
-import { createQueue, QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
+import { createQueue, cancelJobsByVideoId, QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from '@clipmaker/queue';
 
 const MULTIPART_THRESHOLD = 8 * 1024 * 1024; // 8MB — Codespace proxy limits bodies to ~16MB
 const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
@@ -310,8 +310,8 @@ export const videoRouter = router({
 
       if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
 
-      if (video.status !== 'failed') {
-        throw new TRPCError({ code: 'CONFLICT', message: 'Перезапуск возможен только для видео со статусом "ошибка"' });
+      if (video.status !== 'failed' && video.status !== 'cancelled') {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Перезапуск возможен только для остановленных или неудавшихся видео' });
       }
 
       if (!video.filePath) {
@@ -392,6 +392,41 @@ export const videoRouter = router({
       }, DEFAULT_JOB_OPTIONS);
 
       return { status: 'reprocessing' as const, stage: 'transcribing' as const };
+    }),
+
+  cancel: protectedProcedure
+    .input(z.object({ videoId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const video = await ctx.prisma.video.findFirst({
+        where: { id: input.videoId, userId },
+      });
+
+      if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Видео не найдено' });
+
+      const processingStatuses = ['downloading', 'transcribing', 'analyzing', 'generating_clips'];
+      if (!processingStatuses.includes(video.status)) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Видео не находится в обработке' });
+      }
+
+      // Cancel all BullMQ jobs for this video across all processing queues
+      const cancelled = await cancelJobsByVideoId(input.videoId, [
+        QUEUE_NAMES.STT!,
+        QUEUE_NAMES.LLM!,
+        QUEUE_NAMES.VIDEO_RENDER!,
+        QUEUE_NAMES.VIDEO_DOWNLOAD!,
+      ]);
+
+      await ctx.prisma.video.update({
+        where: { id: video.id },
+        data: {
+          status: 'cancelled',
+          errorMessage: 'Остановлено пользователем',
+        },
+      });
+
+      return { cancelled: true, jobsCancelled: cancelled };
     }),
 
   createFromUrl: protectedProcedure
