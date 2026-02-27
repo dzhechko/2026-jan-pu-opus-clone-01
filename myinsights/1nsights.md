@@ -17,3 +17,4 @@
 | INS-013 | `localhost:9000`, `ByteString`, presigned URL, thumbnail 404 | S3 presigned URLs fail in Codespace — use proxy | [INS-013](INS-013-s3-proxy-codespace.md) | 🟢 Active | 1 |
 | INS-014 | `404`, `/dashboard/settings`, route group `(settings)` | Settings 404: route group mismatch with nav links | [INS-014](INS-014-route-group-mismatch.md) | 🟢 Active | 1 |
 | INS-015 | `downloading` stuck, YouTube URL, `safeFetch` HTML | YouTube URL download gets HTML, not video file | [INS-015](INS-015-youtube-url-download.md) | 🟢 Active | 1 |
+| INS-016 | `platforms page not working`, `free plan`, `autoPostPlatforms` | Free plan: platform UI shows no feedback when gated | [INS-016](INS-016-free-plan-platform-gating.md) | 🟢 Active | 1 |

@@ -1,7 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc/client';
+import { PLANS } from '@clipmaker/types';
+import type { PlanId } from '@clipmaker/types';
+
+const PLAN_LABELS: Record<string, string> = {
+  free: 'Free',
+  start: 'Start (990₽/мес)',
+  pro: 'Pro (2990₽/мес)',
+  business: 'Business',
+};
 
 const PLATFORMS = [
   {
@@ -41,10 +50,19 @@ const PLATFORMS = [
 type Platform = (typeof PLATFORMS)[number];
 
 export default function PlatformsPage() {
+  const { data: user } = trpc.user.me.useQuery();
   const { data: connections, refetch } = trpc.platform.list.useQuery();
   const connectMutation = trpc.platform.connect.useMutation();
   const disconnectMutation = trpc.platform.disconnect.useMutation();
   const testMutation = trpc.platform.testConnection.useMutation();
+
+  const planId = (user?.planId ?? 'free') as PlanId;
+  const plan = PLANS[planId];
+  const allowedPlatforms = useMemo(() => new Set(plan?.autoPostPlatforms ?? []), [plan]);
+  const hasNoPlatforms = allowedPlatforms.size === 0;
+
+  // Find minimum plan that unlocks at least one platform
+  const upgradePlan = hasNoPlatforms ? 'start' : null;
 
   return (
     <div className="max-w-2xl">
@@ -53,9 +71,26 @@ export default function PlatformsPage() {
         Подключите платформы для автоматической публикации клипов.
       </p>
 
+      {hasNoPlatforms && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+          <h3 className="font-semibold text-amber-800 mb-1">Авто-постинг недоступен на вашем тарифе</h3>
+          <p className="text-sm text-amber-700 mb-3">
+            На тарифе <strong>{PLAN_LABELS[planId] ?? planId}</strong> публикация в соцсети не включена.
+            Обновите тариф для подключения платформ.
+          </p>
+          <a
+            href="/dashboard/billing"
+            className="inline-block text-sm px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
+          >
+            Обновить тариф{upgradePlan ? ` до ${PLAN_LABELS[upgradePlan]}` : ''}
+          </a>
+        </div>
+      )}
+
       <div className="space-y-4">
         {PLATFORMS.map((platform) => {
           const connection = connections?.find((c) => c.platform === platform.id);
+          const isAllowed = allowedPlatforms.has(platform.id);
           return (
             <PlatformCard
               key={platform.id}
@@ -84,6 +119,7 @@ export default function PlatformsPage() {
               }}
               isConnecting={connectMutation.isPending}
               isDisconnecting={disconnectMutation.isPending}
+              isAllowed={isAllowed}
             />
           );
         })}
@@ -101,6 +137,7 @@ type PlatformCardProps = {
   onTest: () => Promise<{ valid: boolean; accountName?: string }>;
   isConnecting: boolean;
   isDisconnecting: boolean;
+  isAllowed: boolean;
 };
 
 function PlatformCard({
@@ -112,6 +149,7 @@ function PlatformCard({
   onTest,
   isConnecting,
   isDisconnecting,
+  isAllowed,
 }: PlatformCardProps) {
   const [showTokenForm, setShowTokenForm] = useState(false);
   const [token, setToken] = useState('');
@@ -158,18 +196,27 @@ function PlatformCard({
   };
 
   return (
-    <div className="bg-white rounded-xl border p-5">
+    <div className={`bg-white rounded-xl border p-5 ${!isAllowed ? 'opacity-60' : ''}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">{platform.icon}</span>
           <div>
             <h3 className="font-semibold">{platform.name}</h3>
-            <p className="text-sm text-gray-500">{platform.description}</p>
+            <p className="text-sm text-gray-500">
+              {!isAllowed ? 'Недоступно на вашем тарифе' : platform.description}
+            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {connected ? (
+          {!isAllowed ? (
+            <a
+              href="/dashboard/billing"
+              className="text-xs px-2 py-1 bg-gray-100 text-gray-500 rounded hover:bg-gray-200 transition-colors"
+            >
+              Обновить тариф
+            </a>
+          ) : connected ? (
             <>
               <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
                 Подключено
