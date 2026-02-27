@@ -6,6 +6,7 @@ import { billingRouter } from './billing';
 import { transcriptRouter } from './transcript';
 import { platformRouter } from './platform';
 import { analyticsRouter } from './analytics';
+import { teamRouter } from './team';
 
 export const appRouter = router({
   video: videoRouter,
@@ -15,6 +16,7 @@ export const appRouter = router({
   transcript: transcriptRouter,
   platform: platformRouter,
   analytics: analyticsRouter,
+  team: teamRouter,
 });
 
 export type AppRouter = typeof appRouter;
