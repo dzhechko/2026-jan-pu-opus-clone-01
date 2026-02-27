@@ -29,6 +29,15 @@ export function VideoHeader({ videoId, title, status, durationSeconds, sttModel 
     },
   });
 
+  const cancelMutation = trpc.video.cancel.useMutation({
+    onSuccess: () => {
+      utils.video.get.invalidate({ id: videoId });
+    },
+  });
+
+  const isProcessing = ['downloading', 'transcribing', 'analyzing', 'generating_clips'].includes(status);
+  const canReprocess = status === 'failed' || status === 'cancelled';
+
   return (
     <div className="mb-6">
       <div className="flex items-start justify-between gap-4">
@@ -42,7 +51,17 @@ export function VideoHeader({ videoId, title, status, durationSeconds, sttModel 
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {status === 'failed' && (
+          {isProcessing && (
+            <button
+              type="button"
+              onClick={() => cancelMutation.mutate({ videoId })}
+              disabled={cancelMutation.isPending}
+              className="px-3 py-1.5 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {cancelMutation.isPending ? 'Остановка...' : 'Остановить'}
+            </button>
+          )}
+          {canReprocess && (
             <button
               type="button"
               onClick={() => reprocessMutation.mutate({ videoId })}
@@ -87,6 +106,11 @@ export function VideoHeader({ videoId, title, status, durationSeconds, sttModel 
       {deleteMutation.isError && (
         <p className="mt-2 text-sm text-red-500">
           Ошибка удаления: {deleteMutation.error.message}
+        </p>
+      )}
+      {cancelMutation.isError && (
+        <p className="mt-2 text-sm text-red-500">
+          Ошибка остановки: {cancelMutation.error.message}
         </p>
       )}
       {reprocessMutation.isError && (

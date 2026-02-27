@@ -6,7 +6,7 @@ import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
 import { ClipList } from '@/components/clips/clip-list';
 import { ProcessingProgress } from '@/components/dashboard/processing-progress';
 
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const PROCESSING_STATUSES = new Set(['downloading', 'transcribing', 'analyzing', 'generating_clips']);
 const PROXY_ENABLED = process.env.NEXT_PUBLIC_USE_S3_PROXY === 'true';
 
@@ -16,6 +16,13 @@ type VideoDetailProps = {
 };
 
 export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
+  const utils = trpc.useUtils();
+  const cancelMutation = trpc.video.cancel.useMutation({
+    onSuccess: () => {
+      utils.video.get.invalidate({ id: videoId });
+    },
+  });
+
   const { data: video, isLoading } = trpc.video.get.useQuery(
     { id: videoId },
     {
@@ -69,12 +76,18 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
           <ProcessingProgress
             progress={video.processingProgress}
             stage={video.processingStage}
+            onCancel={() => cancelMutation.mutate({ videoId: video.id })}
+            isCancelling={cancelMutation.isPending}
           />
         </div>
       )}
 
       {video.status === 'failed' && (
         <FailedBlock videoId={video.id} errorMessage={video.errorMessage} />
+      )}
+
+      {video.status === 'cancelled' && (
+        <StoppedBlock videoId={video.id} errorMessage={video.errorMessage} />
       )}
 
       <div className="space-y-6">
@@ -90,7 +103,7 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
   );
 }
 
-function FailedBlock({ videoId, errorMessage }: { videoId: string; errorMessage: string | null }) {
+function ReprocessButton({ videoId }: { videoId: string }) {
   const utils = trpc.useUtils();
   const reprocessMutation = trpc.video.reprocess.useMutation({
     onSuccess: () => {
@@ -99,12 +112,7 @@ function FailedBlock({ videoId, errorMessage }: { videoId: string; errorMessage:
   });
 
   return (
-    <div className="mb-6 p-4 bg-red-50 rounded-lg">
-      {errorMessage && (
-        <p className="text-sm text-red-700 mb-3">
-          <span className="font-medium">Ошибка обработки:</span> {errorMessage}
-        </p>
-      )}
+    <>
       <button
         type="button"
         onClick={() => reprocessMutation.mutate({ videoId })}
@@ -118,6 +126,31 @@ function FailedBlock({ videoId, errorMessage }: { videoId: string; errorMessage:
           {reprocessMutation.error.message}
         </p>
       )}
+    </>
+  );
+}
+
+function FailedBlock({ videoId, errorMessage }: { videoId: string; errorMessage: string | null }) {
+  return (
+    <div className="mb-6 p-4 bg-red-50 rounded-lg">
+      {errorMessage && (
+        <p className="text-sm text-red-700 mb-3">
+          <span className="font-medium">Ошибка обработки:</span> {errorMessage}
+        </p>
+      )}
+      <ReprocessButton videoId={videoId} />
+    </div>
+  );
+}
+
+function StoppedBlock({ videoId, errorMessage }: { videoId: string; errorMessage: string | null }) {
+  return (
+    <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
+      <p className="text-sm text-yellow-700 mb-3">
+        <span className="font-medium">Обработка остановлена.</span>
+        {errorMessage && <> {errorMessage}</>}
+      </p>
+      <ReprocessButton videoId={videoId} />
     </div>
   );
 }

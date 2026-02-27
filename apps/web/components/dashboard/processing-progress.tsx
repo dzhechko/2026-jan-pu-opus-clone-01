@@ -10,9 +10,11 @@ const STAGE_LABELS: Record<string, string> = {
 type ProcessingProgressProps = {
   progress: number | null;
   stage: string | null;
+  onCancel?: () => void;
+  isCancelling?: boolean;
 };
 
-export function ProcessingProgress({ progress, stage }: ProcessingProgressProps) {
+export function ProcessingProgress({ progress, stage, onCancel, isCancelling }: ProcessingProgressProps) {
   const pct = progress ?? 0;
   const label = stage ? (STAGE_LABELS[stage] ?? stage) : 'Обработка...';
 
@@ -20,7 +22,20 @@ export function ProcessingProgress({ progress, stage }: ProcessingProgressProps)
     <div className="mt-1.5">
       <div className="flex items-center justify-between text-xs text-gray-500 mb-0.5">
         <span>{label}</span>
-        <span>{pct}%</span>
+        <div className="flex items-center gap-2">
+          <span>{pct}%</span>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isCancelling}
+              className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-50 transition-colors"
+              title="Остановить обработку"
+            >
+              {isCancelling ? '...' : 'Стоп'}
+            </button>
+          )}
+        </div>
       </div>
       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
         <div
