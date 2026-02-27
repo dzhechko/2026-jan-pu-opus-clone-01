@@ -7,7 +7,7 @@
 | INS-003 | `Secure`, `cookie`, `Codespace`, `HTTPS proxy` | Auth cookies rejected in Codespace HTTPS environment | [INS-003](INS-003-codespace-secure-cookies.md) | 🟢 Active | 1 |
 | INS-004 | `CORS`, `S3 presigned URL`, `upload hangs`, `s3.cloud.ru` | Upload hangs: S3 CORS blocks browser PUT to presigned URL | [INS-004](INS-004-s3-cors-upload-hang.md) | 🟢 Active | 1 |
 | INS-005 | `Invalid environment variables`, `DATABASE_URL Required` | Worker/Next.js can't find .env in monorepo | [INS-005](INS-005-monorepo-env-loading.md) | 🟢 Active | 1 |
-| INS-006 | `file_size does not exist`, `prisma db push` | DB schema out of sync after Prisma model changes | [INS-006](INS-006-prisma-schema-sync.md) | 🟢 Active | 1 |
+| INS-006 | `file_size does not exist`, `prisma db push` | DB schema out of sync after Prisma model changes | [INS-006](INS-006-prisma-schema-sync.md) | 🟢 Active | 2 |
 | INS-007 | `SignatureDoesNotMatch`, `presigned URL`, `checksum`, `CRC32` | S3 presigned URL fails: AWS SDK v3 auto-checksum + Codespace proxy | [INS-007](INS-007-s3-signature-mismatch.md) | 🟢 Active | 1 |
 | INS-008 | `UNAUTHORIZED`, `protectedProcedure`, `x-user-id null` | Soft-auth paths skip JWT verification → protectedProcedure fails | [INS-008](INS-008-soft-auth-missing-headers.md) | 🟢 Active | 1 |
 | INS-009 | `body exceeded 10 MB`, upload truncated, `uploading` stuck | Next.js silently truncates request body to 10 MB | [INS-009](INS-009-nextjs-body-size-limit.md) | 🟢 Active | 1 |
@@ -18,3 +18,5 @@
 | INS-014 | `404`, `/dashboard/settings`, route group `(settings)` | Settings 404: route group mismatch with nav links | [INS-014](INS-014-route-group-mismatch.md) | 🟢 Active | 1 |
 | INS-015 | `downloading` stuck, YouTube URL, `safeFetch` HTML | YouTube URL download gets HTML, not video file | [INS-015](INS-015-youtube-url-download.md) | 🟢 Active | 1 |
 | INS-016 | `platforms page not working`, `free plan`, `autoPostPlatforms` | Free plan: platform UI shows no feedback when gated | [INS-016](INS-016-free-plan-platform-gating.md) | 🟢 Active | 1 |
+| INS-017 | `Unknown field teamId`, `prisma db push already in sync`, `select` | Prisma Client stale after schema change in monorepo | [INS-017](INS-017-prisma-client-stale-monorepo.md) | 🟢 Active | 1 |
+| INS-018 | `useRef Expected 1 arguments`, `Uint8Array BufferSource`, `QueueName undefined` | Pre-existing TS errors: React 19 useRef, BufferSource cast, Record index | [INS-018](INS-018-preexisting-ts-errors.md) | 🟢 Active | 1 |

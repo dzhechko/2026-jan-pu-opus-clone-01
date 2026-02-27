@@ -1,6 +1,6 @@
 # INS-006: DB schema out of sync after Prisma model changes
 
-**Status:** 🟢 Active | **Hits:** 1 | **Created:** 2026-02-26
+**Status:** 🟢 Active | **Hits:** 2 | **Created:** 2026-02-26
 
 ## Error Signatures
 - `The column "file_size" does not exist in the current database`
