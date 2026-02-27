@@ -19,4 +19,9 @@
 | INS-015 | `downloading` stuck, YouTube URL, `safeFetch` HTML | YouTube URL download gets HTML, not video file | [INS-015](INS-015-youtube-url-download.md) | 🟢 Active | 1 |
 | INS-016 | `platforms page not working`, `free plan`, `autoPostPlatforms` | Free plan: platform UI shows no feedback when gated | [INS-016](INS-016-free-plan-platform-gating.md) | 🟢 Active | 1 |
 | INS-017 | `Unknown field teamId`, `prisma db push already in sync`, `select` | Prisma Client stale after schema change in monorepo | [INS-017](INS-017-prisma-client-stale-monorepo.md) | 🟢 Active | 1 |
-| INS-018 | `useRef Expected 1 arguments`, `Uint8Array BufferSource`, `QueueName undefined` | Pre-existing TS errors: React 19 useRef, BufferSource cast, Record index | [INS-018](INS-018-preexisting-ts-errors.md) | 🟢 Active | 1 |
+| INS-018 | `useRef Expected 1 arguments`, `Uint8Array BufferSource`, `QueueName undefined` | Pre-existing TS errors: React 19 useRef, BufferSource cast, Record index | [INS-018](INS-018-preexisting-ts-errors.md) | 🟢 Active | 2 |
+| INS-019 | `Конфигурация VK OAuth не настроена`, `VK_PUBLISH_CLIENT_ID`, `YANDEX_CLIENT_ID` | OAuth невозможен в Codespace — нужна dev-mode заглушка | [INS-019](INS-019-oauth-dev-simulation.md) | 🟢 Active | 1 |
+| INS-020 | `email not received`, `SMTP_HOST not configured`, `Ethereal` | Ethereal fake SMTP для dev-email вместо console.log | [INS-020](INS-020-ethereal-dev-email.md) | 🟢 Active | 1 |
+| INS-021 | `QueueName | undefined`, `Record<string, QueueName>`, `Type 'undefined' is not assignable` | Record<string,T> indexing возвращает T \| undefined в strict mode | [INS-021](INS-021-record-index-undefined.md) | 🟢 Active | 1 |
+| INS-022 | `Cannot find module '../lib/redis'`, `billing-cron import error` | Worker import paths — только из @clipmaker/queue | [INS-022](INS-022-worker-import-paths.md) | 🟢 Active | 1 |
+| INS-023 | `accountName undefined`, `metadata?.accountName`, `platform no name` | Platform metadata key mismatch — UI vs Backend | [INS-023](INS-023-metadata-key-mismatch.md) | 🟢 Active | 1 |
