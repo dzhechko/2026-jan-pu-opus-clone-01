@@ -148,7 +148,7 @@ VK_CLIENT_SECRET=ваш_секрет_vk
 
 # ===== CLOUD.RU AI (серверный ключ, стратегия RU) =====
 CLOUDRU_API_KEY=ваш_ключ_cloudru
-CLOUDRU_BASE_URL=https://api.cloud.ru/v1
+CLOUDRU_BASE_URL=https://foundation-models.api.cloud.ru/v1
 
 # ===== S3-СОВМЕСТИМОЕ ХРАНИЛИЩЕ =====
 S3_ENDPOINT=https://s3.cloud.ru

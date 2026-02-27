@@ -144,12 +144,12 @@ type LLMProviderStrategy = "ru" | "global"
 
 type LLMProviderConfig = {
   ru: {
-    stt: { provider: "cloudru", model: "whisper-large-v3", cost_per_sec: 0.005 }
+    stt: { provider: "cloudru", model: "openai/whisper-large-v3", cost_per_sec: 0.005 }
     tier0: { provider: "cloudru", model: "GigaChat3-10B-A1.8B", cost_input: 10, cost_output: 10 }
     tier1: { provider: "cloudru", model: "t-tech/T-pro-it-2.1", cost_input: 35, cost_output: 70 }
     tier2: { provider: "cloudru", model: "Qwen3-235B-A22B-Instruct-2507", cost_input: 17, cost_output: 70 }
     tier3: { provider: "cloudru", model: "zai-org/GLM-4.6", cost_input: 55, cost_output: 220 }
-    base_url: "https://api.cloud.ru/v1"
+    base_url: "https://foundation-models.api.cloud.ru/v1"
     data_residency: "RU"
   }
   global: {

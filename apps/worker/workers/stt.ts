@@ -236,11 +236,14 @@ worker.on('failed', async (job, err) => {
   logger.error({ event: 'stt_job_failed', jobId: job?.id, error: err.message });
 
   // Mark video as failed only after all retries exhausted
-  if (job && videoId && job.attemptsMade === job.opts?.attempts) {
+  // BullMQ's `attempts` defaults to 0 (no retries) if not set.
+  // DEFAULT_JOB_OPTIONS sets attempts=3, so attemptsMade will be 3 on final failure.
+  const maxAttempts = job?.opts?.attempts ?? 0;
+  if (job && videoId && job.attemptsMade >= maxAttempts) {
     try {
       await prisma.video.update({
         where: { id: videoId },
-        data: { status: 'failed' },
+        data: { status: 'failed', errorMessage: err.message },
       });
       logger.info({ event: 'stt_video_marked_failed', videoId });
     } catch (updateErr) {

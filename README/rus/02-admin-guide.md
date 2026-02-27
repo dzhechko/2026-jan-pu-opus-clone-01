@@ -460,7 +460,7 @@ GROUP BY llm_provider_used;
 
 ```bash
 # Проверка Cloud.ru API
-curl -s https://api.cloud.ru/v1/models \
+curl -s https://foundation-models.api.cloud.ru/v1/models \
   -H "Authorization: Bearer $CLOUDRU_API_KEY" | head -50
 
 # Проверка переменных окружения в контейнере

@@ -472,11 +472,13 @@ worker.on('failed', async (job, err) => {
   const videoId = job.data?.videoId;
   logger.error({ event: 'llm_job_failed', jobId: job.id, task: job.data?.task, error: err.message });
 
-  if (videoId && job.attemptsMade === job.opts?.attempts) {
+  // BullMQ's `attempts` defaults to 0 (no retries) if not set.
+  const maxAttempts = job.opts?.attempts ?? 0;
+  if (videoId && job.attemptsMade >= maxAttempts) {
     try {
       await prisma.video.update({
         where: { id: videoId },
-        data: { status: 'failed' },
+        data: { status: 'failed', errorMessage: err.message },
       });
       logger.info({ event: 'llm_video_marked_failed', videoId });
     } catch (updateErr) {

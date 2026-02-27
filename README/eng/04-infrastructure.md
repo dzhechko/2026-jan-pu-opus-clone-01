@@ -234,7 +234,7 @@ Recommended temp directory: at least 50 GB free space.
 | Parameter | Value |
 |-----------|-------|
 | API | OpenAI-compatible |
-| Endpoint | https://api.cloud.ru/v1 |
+| Endpoint | https://foundation-models.api.cloud.ru/v1 |
 | Models | T-Pro 2.1, GigaChat3-10B, Qwen3-235B, GLM-4.6, Whisper |
 | SLA | 99.9% (contractual) |
 | Payment | Russian rubles, monthly |

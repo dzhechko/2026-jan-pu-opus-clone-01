@@ -154,7 +154,7 @@ VK_CLIENT_SECRET=your_vk_client_secret
 
 # ===== CLOUD.RU AI (server-side key, RU strategy) =====
 CLOUDRU_API_KEY=your_cloudru_api_key
-CLOUDRU_BASE_URL=https://api.cloud.ru/v1
+CLOUDRU_BASE_URL=https://foundation-models.api.cloud.ru/v1
 
 # ===== S3-COMPATIBLE STORAGE =====
 S3_ENDPOINT=https://s3.cloud.ru

@@ -9,7 +9,7 @@ const envSchema = z.object({
   VK_CLIENT_ID: z.string().optional(),
   VK_CLIENT_SECRET: z.string().optional(),
   CLOUDRU_API_KEY: z.string().optional(),
-  CLOUDRU_BASE_URL: z.string().url().default('https://api.cloud.ru/v1'),
+  CLOUDRU_BASE_URL: z.string().url().default('https://foundation-models.api.cloud.ru/v1'),
   S3_ENDPOINT: z.string().url().optional(),
   S3_REGION: z.string().default('ru-central-1'),
   S3_TENANT_ID: z.string().optional(),

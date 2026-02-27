@@ -252,7 +252,7 @@ import OpenAI from 'openai';
 
 const cloudru = new OpenAI({
   apiKey: process.env.CLOUDRU_API_KEY,
-  baseURL: 'https://api.cloud.ru/v1', // OpenAI-compatible endpoint
+  baseURL: 'https://foundation-models.api.cloud.ru/v1', // OpenAI-compatible endpoint
 });
 
 // Tier 1: T-Pro 2.1 for moment selection
@@ -280,7 +280,7 @@ const titles = await cloudru.chat.completions.create({
 
 // STT: Whisper on Cloud.ru
 const transcription = await cloudru.audio.transcriptions.create({
-  model: 'whisper-large-v3',
+  model: 'openai/whisper-large-v3',
   file: audioFile,
   language: 'ru',
   response_format: 'verbose_json', // includes timestamps
