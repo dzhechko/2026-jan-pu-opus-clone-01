@@ -71,6 +71,19 @@ export default function PlatformsPage() {
         Подключите платформы для автоматической публикации клипов.
       </p>
 
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+          <h3 className="font-semibold text-blue-800 text-sm mb-1">Dev-режим: OAuth-заглушки</h3>
+          <p className="text-xs text-blue-700">
+            VK и Дзен используют OAuth, который требует публичного redirect URL.
+            В dev-окружении (Codespace) реальный OAuth невозможен, поэтому при подключении
+            VK/Дзен создаётся <strong>симулированное подключение</strong> с фиктивным токеном.
+            Публикация через эти заглушки работать не будет — настройте реальные OAuth-креды
+            (VK_PUBLISH_CLIENT_ID, YANDEX_CLIENT_ID и т.д.) в .env для production.
+          </p>
+        </div>
+      )}
+
       {hasNoPlatforms && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
           <h3 className="font-semibold text-amber-800 mb-1">Авто-постинг недоступен на вашем тарифе</h3>
@@ -96,7 +109,7 @@ export default function PlatformsPage() {
               key={platform.id}
               platform={platform}
               connected={!!connection}
-              metadata={connection?.metadata as Record<string, string> | undefined}
+              metadata={connection?.metadata as PlatformCardProps['metadata']}
               onConnect={async (token?: string, channelId?: string) => {
                 const result = await connectMutation.mutateAsync({
                   platform: platform.id,
@@ -131,7 +144,7 @@ export default function PlatformsPage() {
 type PlatformCardProps = {
   platform: Platform;
   connected: boolean;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, string> & { name?: string; publisherName?: string; devMode?: boolean };
   onConnect: (token?: string, channelId?: string) => Promise<void>;
   onDisconnect: () => Promise<void>;
   onTest: () => Promise<{ valid: boolean; accountName?: string }>;
@@ -262,8 +275,11 @@ function PlatformCard({
         </div>
       </div>
 
-      {metadata?.accountName && (
-        <p className="mt-2 text-xs text-gray-400">Аккаунт: {metadata.accountName}</p>
+      {(metadata?.name || metadata?.publisherName) && (
+        <p className="mt-2 text-xs text-gray-400">
+          Аккаунт: {metadata.name ?? metadata.publisherName}
+          {metadata.devMode && <span className="ml-1 text-amber-500">(dev)</span>}
+        </p>
       )}
 
       {testResult && (

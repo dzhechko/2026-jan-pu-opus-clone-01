@@ -104,6 +104,39 @@ async function validateTelegramToken(
   return botName;
 }
 
+/**
+ * Dev mode: simulate OAuth connection by creating a mock PlatformConnection.
+ * Only used when OAuth credentials are not configured in development.
+ */
+async function simulateOAuthConnect(
+  ctx: { prisma: typeof import('@clipmaker/db').prisma },
+  userId: string,
+  platform: 'vk' | 'dzen',
+  accountName: string,
+) {
+  const secret = getTokenSecret();
+  const fakeToken = encryptToken(`dev-mock-token-${platform}-${Date.now()}`, secret);
+
+  await ctx.prisma.platformConnection.upsert({
+    where: {
+      userId_platform: { userId, platform },
+    },
+    create: {
+      userId,
+      platform,
+      accessTokenEncrypted: fakeToken,
+      metadata: { name: accountName, devMode: true },
+    },
+    update: {
+      accessTokenEncrypted: fakeToken,
+      expiresAt: null,
+      metadata: { name: accountName, devMode: true },
+    },
+  });
+
+  return { connected: true, accountName };
+}
+
 export const platformRouter = router({
   /**
    * Connect a platform — OAuth redirect for VK/Dzen, direct token for Rutube/Telegram.
@@ -137,45 +170,56 @@ export const platformRouter = router({
 
       // OAuth platforms: VK, Dzen
       if (OAUTH_PLATFORMS.includes(input.platform)) {
-        const state = randomUUID();
-        const redis = getOAuthRedis();
-        await redis.set(
-          `oauth:${input.platform}:${state}`,
-          userId,
-          'EX',
-          OAUTH_STATE_TTL,
-        );
-
-        let redirectUrl: string;
-
         if (input.platform === 'vk') {
           const clientId = process.env.VK_PUBLISH_CLIENT_ID;
           const redirectUri = process.env.VK_PUBLISH_REDIRECT_URI;
+
           if (!clientId || !redirectUri) {
+            // Dev mode: simulate OAuth connection
+            if (process.env.NODE_ENV === 'development') {
+              return simulateOAuthConnect(ctx, userId, 'vk', 'VK Dev (заглушка)');
+            }
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
               message: 'Конфигурация VK OAuth не настроена',
             });
           }
-          redirectUrl =
+
+          const state = randomUUID();
+          const redis = getOAuthRedis();
+          await redis.set(`oauth:vk:${state}`, userId, 'EX', OAUTH_STATE_TTL);
+
+          const redirectUrl =
             `https://oauth.vk.com/authorize?client_id=${clientId}` +
             `&redirect_uri=${encodeURIComponent(redirectUri)}` +
             `&scope=video,wall,offline&response_type=code&state=${state}&v=5.199`;
-        } else {
-          // dzen (Yandex OAuth)
-          const clientId = process.env.YANDEX_CLIENT_ID;
-          const redirectUri = process.env.YANDEX_REDIRECT_URI;
-          if (!clientId || !redirectUri) {
-            throw new TRPCError({
-              code: 'INTERNAL_SERVER_ERROR',
-              message: 'Конфигурация Yandex/Дзен OAuth не настроена',
-            });
-          }
-          redirectUrl =
-            `https://oauth.yandex.ru/authorize?client_id=${clientId}` +
-            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-            `&response_type=code&state=${state}&scope=zen:write+zen:read`;
+
+          return { redirectUrl };
         }
+
+        // dzen (Yandex OAuth)
+        const clientId = process.env.YANDEX_CLIENT_ID;
+        const redirectUri = process.env.YANDEX_REDIRECT_URI;
+
+        if (!clientId || !redirectUri) {
+          // Dev mode: simulate OAuth connection
+          if (process.env.NODE_ENV === 'development') {
+            return simulateOAuthConnect(ctx, userId, 'dzen', 'Дзен Dev (заглушка)');
+          }
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Конфигурация Yandex/Дзен OAuth не настроена',
+          });
+        }
+
+        const state = randomUUID();
+        const redis = getOAuthRedis();
+        await redis.set(`oauth:dzen:${state}`, userId, 'EX', OAUTH_STATE_TTL);
+
+        const redirectUrl =
+          `https://oauth.yandex.ru/authorize?client_id=${clientId}` +
+          `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+          `&response_type=code&state=${state}&scope=zen:write+zen:read`;
 
         return { redirectUrl };
       }
