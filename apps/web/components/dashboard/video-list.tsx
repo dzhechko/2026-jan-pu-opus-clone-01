@@ -7,6 +7,9 @@ type Video = {
   title: string;
   status: string;
   durationSeconds: number | null;
+  processingProgress: number | null;
+  processingStage: string | null;
+  errorMessage: string | null;
   createdAt: Date;
   _count: { clips: number };
 };

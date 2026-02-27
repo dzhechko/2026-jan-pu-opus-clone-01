@@ -4,8 +4,10 @@ import { trpc } from '@/lib/trpc/client';
 import { VideoHeader } from './video-header';
 import { TranscriptViewer } from '@/components/transcript/transcript-viewer';
 import { ClipList } from '@/components/clips/clip-list';
+import { ProcessingProgress } from '@/components/dashboard/processing-progress';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const PROCESSING_STATUSES = new Set(['downloading', 'transcribing', 'analyzing', 'generating_clips']);
 const PROXY_ENABLED = process.env.NEXT_PUBLIC_USE_S3_PROXY === 'true';
 
 type VideoDetailProps = {
@@ -34,6 +36,8 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
     );
   }
 
+  const isProcessing = PROCESSING_STATUSES.has(video.status);
+
   const clipsWithUrls = video.clips.map((clip) => {
     let thumbnailUrl: string | undefined;
     let videoUrl: string | undefined;
@@ -59,6 +63,24 @@ export function VideoDetail({ videoId, userPlan }: VideoDetailProps) {
         durationSeconds={video.durationSeconds}
         sttModel={video.transcript?.sttModel ?? null}
       />
+
+      {isProcessing && (
+        <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+          <ProcessingProgress
+            progress={video.processingProgress}
+            stage={video.processingStage}
+          />
+        </div>
+      )}
+
+      {video.status === 'failed' && video.errorMessage && (
+        <div className="mb-6 p-4 bg-red-50 rounded-lg">
+          <p className="text-sm text-red-700">
+            <span className="font-medium">Ошибка обработки:</span>{' '}
+            {video.errorMessage}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-6">
         <TranscriptViewer videoId={video.id} videoStatus={video.status} />

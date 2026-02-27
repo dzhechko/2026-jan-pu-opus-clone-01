@@ -68,7 +68,7 @@ const worker = new Worker<STTJobData>(
       if (transcribeMinutes <= 0) {
         await prisma.video.update({
           where: { id: video.id },
-          data: { status: 'failed' },
+          data: { status: 'failed', errorMessage: 'Минуты исчерпаны. Обновите тариф.' },
         });
         throw new Error('No minutes remaining');
       }
@@ -99,6 +99,13 @@ const worker = new Worker<STTJobData>(
         ? createSTTClient(strategy, byokOpenaiKey)
         : createSTTClient(strategy);
 
+      // Set initial progress stage
+      await prisma.video.update({
+        where: { id: videoId },
+        data: { processingProgress: 0, processingStage: 'transcribing' },
+      });
+
+      let completedChunks = 0;
       const chunkResults = await pMap(
         chunks,
         async (chunk) => {
@@ -119,6 +126,15 @@ const worker = new Worker<STTJobData>(
           ).filter(
             (raw) => raw.text.trim().length > 0 && (raw.no_speech_prob ?? 0) < 0.8,
           );
+
+          // Track chunk progress (STT = 0-50%)
+          completedChunks++;
+          const progress = Math.round((completedChunks / chunks.length) * 50);
+          await prisma.video.update({
+            where: { id: videoId },
+            data: { processingProgress: progress },
+          });
+          await job.updateProgress(progress);
 
           // Map to TranscriptSegment with chunk offset
           return rawSegments.map((raw): TranscriptSegment => ({

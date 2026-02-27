@@ -79,6 +79,12 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
 
   let totalLlmCostKopecks = 0;
 
+  // Update progress: LLM analysis starts at 50% (STT was 0-50%)
+  await prisma.video.update({
+    where: { id: videoId },
+    data: { processingProgress: 50, processingStage: 'analyzing' },
+  });
+
   // M15: Fetch video with user and transcript in a single query
   const video = await prisma.video.findUnique({
     where: { id: videoId },
@@ -207,6 +213,12 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
     });
   }
 
+  // Progress: moment selection done → 60%
+  await prisma.video.update({
+    where: { id: videoId },
+    data: { processingProgress: 60, processingStage: 'moment_selection' },
+  });
+
   // 4. Validate and deduplicate moments
   moments = validateMoments(moments, videoDurationSeconds);
   moments = deduplicateMoments(moments);
@@ -252,6 +264,12 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
     },
     { concurrency: 3 },
   );
+
+  // Progress: scoring + titles + CTA done → 90%
+  await prisma.video.update({
+    where: { id: videoId },
+    data: { processingProgress: 90, processingStage: 'enrichment' },
+  });
 
   // 6. Deduplicate titles and apply plan limits
   const deduped = deduplicateTitles(enrichedMoments);
@@ -339,7 +357,10 @@ async function handleMomentSelection(jobData: LLMJobData): Promise<void> {
 
 async function markVideoFailed(videoId: string, costKopecks: number): Promise<void> {
   logger.error({ event: 'llm_cost_cap_exceeded', videoId, costKopecks });
-  await prisma.video.update({ where: { id: videoId }, data: { status: 'failed' } });
+  await prisma.video.update({
+    where: { id: videoId },
+    data: { status: 'failed', errorMessage: 'LLM cost cap exceeded' },
+  });
 }
 
 // --- Helpers: LLM calls ---

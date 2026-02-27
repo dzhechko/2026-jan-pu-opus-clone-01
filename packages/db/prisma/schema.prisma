@@ -150,6 +150,9 @@ model Video {
   status                VideoStatus   @default(uploading)
   llmProviderUsed       LLMProviderPreference? @map("llm_provider_used")
   processingCostKopecks Int           @default(0) @map("processing_cost_kopecks")
+  processingProgress    Int?          @default(0) @map("processing_progress")
+  processingStage       String?       @map("processing_stage")
+  errorMessage          String?       @map("error_message")
   createdAt             DateTime      @default(now()) @map("created_at")
   updatedAt             DateTime      @updatedAt @map("updated_at")
 
