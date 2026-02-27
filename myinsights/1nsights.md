@@ -26,3 +26,4 @@
 | INS-022 | `Cannot find module '../lib/redis'`, `billing-cron import error` | Worker import paths — только из @clipmaker/queue | [INS-022](INS-022-worker-import-paths.md) | 🟢 Active | 1 |
 | INS-023 | `accountName undefined`, `metadata?.accountName`, `platform no name` | Platform metadata key mismatch — UI vs Backend | [INS-023](INS-023-metadata-key-mismatch.md) | 🟢 Active | 1 |
 | INS-024 | `upload slow`, `загрузка долгая`, `uploading stuck`, `progress stalls` | Медленная загрузка видео в Codespace — by design (двойная буферизация, 14MB чанки, прокси) | [INS-024](INS-024-upload-slow-codespace.md) | 🟡 Workaround | 1 |
+| INS-025 | `api.cloud.ru`, `foundation-models.api.cloud.ru`, `CLOUDRU_BASE_URL`, `STT failed`, `Cloud.ru 404` | Cloud.ru base URL mismatch: api.cloud.ru → foundation-models.api.cloud.ru | [INS-025](INS-025-cloudru-base-url.md) | 🟢 Active | 1 |
