@@ -1,7 +1,7 @@
 import path from 'path';
 import { execFFmpeg } from './ffmpeg';
 
-export const CHUNK_DURATION = 600; // 10 minutes in seconds
+export const CHUNK_DURATION = 180; // 3 minutes in seconds
 
 export type AudioChunk = {
   path: string;

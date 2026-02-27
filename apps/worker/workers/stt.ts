@@ -109,30 +109,17 @@ const worker = new Worker<STTJobData>(
       const chunkResults = await pMap(
         chunks,
         async (chunk) => {
-          // Cloud.ru may not support verbose_json — try it first, fall back to json
+          // Cloud.ru doesn't support verbose_json — use json directly for ru strategy
+          const responseFormat = strategy === 'ru' ? 'json' as const : 'verbose_json' as const;
           const response = await retryWithBackoff(
             async () => {
-              try {
-                return await client.audio.transcriptions.create({
-                  model: sttConfig.model,
-                  file: createReadStream(chunk.path),
-                  language,
-                  response_format: 'verbose_json',
-                  temperature: 0,
-                });
-              } catch (err) {
-                if (strategy === 'ru') {
-                  logger.warn({ event: 'stt_verbose_json_fallback', videoId });
-                  return await client.audio.transcriptions.create({
-                    model: sttConfig.model,
-                    file: createReadStream(chunk.path),
-                    language,
-                    response_format: 'json',
-                    temperature: 0,
-                  });
-                }
-                throw err;
-              }
+              return await client.audio.transcriptions.create({
+                model: sttConfig.model,
+                file: createReadStream(chunk.path),
+                language,
+                response_format: responseFormat,
+                temperature: 0,
+              });
             },
             { maxRetries: 2, baseDelayMs: 2000 },
           );
@@ -175,7 +162,7 @@ const worker = new Worker<STTJobData>(
               : 0.9,
           }));
         },
-        { concurrency: 3 },
+        { concurrency: 2 },
       );
 
       // Flatten and sort by start time (chunks may complete out of order)
