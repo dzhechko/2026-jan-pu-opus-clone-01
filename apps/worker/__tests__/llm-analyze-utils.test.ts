@@ -78,7 +78,7 @@ describe('validateMoments', () => {
       { start: -10, end: 30, title: 'test', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, videoDuration);
-    expect(result[0].start).toBe(0);
+    expect(result[0]!.start).toBe(0);
   });
 
   it('clamps end to <= videoDuration', () => {
@@ -86,7 +86,7 @@ describe('validateMoments', () => {
       { start: 280, end: 400, title: 'test', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, videoDuration);
-    expect(result[0].end).toBeLessThanOrEqual(videoDuration);
+    expect(result[0]!.end).toBeLessThanOrEqual(videoDuration);
   });
 
   it('enforces minimum 15s duration', () => {
@@ -94,7 +94,7 @@ describe('validateMoments', () => {
       { start: 100, end: 105, title: 'short', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, videoDuration);
-    expect(result[0].end - result[0].start).toBeGreaterThanOrEqual(15);
+    expect(result[0]!.end - result[0]!.start).toBeGreaterThanOrEqual(15);
   });
 
   it('enforces maximum 60s duration', () => {
@@ -102,7 +102,7 @@ describe('validateMoments', () => {
       { start: 10, end: 100, title: 'long', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, videoDuration);
-    expect(result[0].end - result[0].start).toBeLessThanOrEqual(60);
+    expect(result[0]!.end - result[0]!.start).toBeLessThanOrEqual(60);
   });
 
   it('handles clip near end of video', () => {
@@ -110,9 +110,9 @@ describe('validateMoments', () => {
       { start: 295, end: 320, title: 'near end', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, videoDuration);
-    expect(result[0].end).toBeLessThanOrEqual(videoDuration);
-    expect(result[0].start).toBeGreaterThanOrEqual(0);
-    expect(result[0].end - result[0].start).toBeGreaterThanOrEqual(15);
+    expect(result[0]!.end).toBeLessThanOrEqual(videoDuration);
+    expect(result[0]!.start).toBeGreaterThanOrEqual(0);
+    expect(result[0]!.end - result[0]!.start).toBeGreaterThanOrEqual(15);
   });
 
   it('handles very short video (< 15s)', () => {
@@ -120,18 +120,18 @@ describe('validateMoments', () => {
       { start: 0, end: 10, title: 'short video', reason: 'r', hookStrength: 10 },
     ];
     const result = validateMoments(moments, 10);
-    expect(result[0].start).toBe(0);
-    expect(result[0].end).toBe(10);
+    expect(result[0]!.start).toBe(0);
+    expect(result[0]!.end).toBe(10);
   });
 
   it('does not mutate original array', () => {
     const moments: MomentCandidate[] = [
       { start: -5, end: 500, title: 'test', reason: 'r', hookStrength: 10 },
     ];
-    const original = { ...moments[0] };
+    const original = { ...moments[0]! };
     validateMoments(moments, videoDuration);
-    expect(moments[0].start).toBe(original.start);
-    expect(moments[0].end).toBe(original.end);
+    expect(moments[0]!.start).toBe(original.start);
+    expect(moments[0]!.end).toBe(original.end);
   });
 
   it('handles exact 2-minute video with multiple clips', () => {
@@ -161,7 +161,7 @@ describe('deduplicateMoments', () => {
     ];
     const result = deduplicateMoments(moments);
     expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('strong');
+    expect(result[0]!.title).toBe('strong');
   });
 
   it('keeps non-overlapping moments', () => {
@@ -190,7 +190,7 @@ describe('deduplicateMoments', () => {
     ];
     const result = deduplicateMoments(moments);
     expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('first'); // higher hookStrength kept
+    expect(result[0]!.title).toBe('first'); // higher hookStrength kept
   });
 
   it('handles empty array', () => {
@@ -220,16 +220,16 @@ describe('deduplicateTitles', () => {
   it('appends suffix for duplicate titles', () => {
     const moments = [makeEnriched('Title'), makeEnriched('Title')];
     const result = deduplicateTitles(moments);
-    expect(result[0].title).toBe('Title');
-    expect(result[1].title).toBe('Title — Ч.2');
+    expect(result[0]!.title).toBe('Title');
+    expect(result[1]!.title).toBe('Title — Ч.2');
   });
 
   it('handles triple duplicates', () => {
     const moments = [makeEnriched('Test'), makeEnriched('Test'), makeEnriched('Test')];
     const result = deduplicateTitles(moments);
-    expect(result[0].title).toBe('Test');
-    expect(result[1].title).toBe('Test — Ч.2');
-    expect(result[2].title).toBe('Test — Ч.3');
+    expect(result[0]!.title).toBe('Test');
+    expect(result[1]!.title).toBe('Test — Ч.2');
+    expect(result[2]!.title).toBe('Test — Ч.3');
   });
 
   it('does not modify unique titles', () => {
@@ -240,9 +240,9 @@ describe('deduplicateTitles', () => {
 
   it('does not mutate original objects', () => {
     const moments = [makeEnriched('Same'), makeEnriched('Same')];
-    const origTitle = moments[1].title;
+    const origTitle = moments[1]!.title;
     deduplicateTitles(moments);
-    expect(moments[1].title).toBe(origTitle);
+    expect(moments[1]!.title).toBe(origTitle);
   });
 });
 
@@ -262,7 +262,7 @@ describe('generateFallbackMoments', () => {
     }
     // Check they don't overlap
     for (let i = 1; i < result.length; i++) {
-      expect(result[i].start).toBeGreaterThan(result[i - 1].end);
+      expect(result[i]!.start).toBeGreaterThan(result[i - 1]!.end);
     }
   });
 
@@ -275,14 +275,14 @@ describe('generateFallbackMoments', () => {
 
   it('generates Russian titles', () => {
     const result = generateFallbackMoments(300, 3);
-    expect(result[0].title).toBe('Момент 1');
-    expect(result[1].title).toBe('Момент 2');
-    expect(result[2].title).toBe('Момент 3');
+    expect(result[0]!.title).toBe('Момент 1');
+    expect(result[1]!.title).toBe('Момент 2');
+    expect(result[2]!.title).toBe('Момент 3');
   });
 
   it('sets hookStrength to 10', () => {
     const result = generateFallbackMoments(300, 1);
-    expect(result[0].hookStrength).toBe(10);
+    expect(result[0]!.hookStrength).toBe(10);
   });
 });
 

@@ -1,14 +1,14 @@
 import type { QueueName } from '@clipmaker/types';
 
-export const QUEUE_NAMES: Record<string, QueueName> = {
-  STT: 'stt',
-  LLM: 'llm',
-  VIDEO_RENDER: 'video-render',
-  PUBLISH: 'publish',
-  STATS_COLLECT: 'stats-collect',
-  BILLING_CRON: 'billing-cron',
-  VIDEO_DOWNLOAD: 'video-download',
-} as const;
+export const QUEUE_NAMES = {
+  STT: 'stt' as QueueName,
+  LLM: 'llm' as QueueName,
+  VIDEO_RENDER: 'video-render' as QueueName,
+  PUBLISH: 'publish' as QueueName,
+  STATS_COLLECT: 'stats-collect' as QueueName,
+  BILLING_CRON: 'billing-cron' as QueueName,
+  VIDEO_DOWNLOAD: 'video-download' as QueueName,
+};
 
 export const DEFAULT_JOB_OPTIONS = {
   attempts: 3,
