@@ -13,7 +13,7 @@ import { prisma } from '@clipmaker/db';
 import { createLogger } from '../lib/logger';
 import { ffprobeGetDuration, extractAudio } from '../lib/ffmpeg';
 import { downloadFromS3 } from '../lib/s3-download';
-import { splitAudio } from '../lib/audio-chunker';
+import { splitAudio, CHUNK_DURATION } from '../lib/audio-chunker';
 import { createSTTClient, getSTTConfig } from '../lib/stt-client';
 import { retryWithBackoff } from '../lib/retry';
 import { peekByokKey } from '../lib/byok-cache';
@@ -109,18 +109,36 @@ const worker = new Worker<STTJobData>(
       const chunkResults = await pMap(
         chunks,
         async (chunk) => {
+          // Cloud.ru may not support verbose_json — try it first, fall back to json
           const response = await retryWithBackoff(
-            async () =>
-              client.audio.transcriptions.create({
-                model: sttConfig.model,
-                file: createReadStream(chunk.path), // Fresh stream per retry attempt
-                language,
-                response_format: 'verbose_json',
-              }),
+            async () => {
+              try {
+                return await client.audio.transcriptions.create({
+                  model: sttConfig.model,
+                  file: createReadStream(chunk.path),
+                  language,
+                  response_format: 'verbose_json',
+                  temperature: 0,
+                });
+              } catch (err) {
+                if (strategy === 'ru') {
+                  logger.warn({ event: 'stt_verbose_json_fallback', videoId });
+                  return await client.audio.transcriptions.create({
+                    model: sttConfig.model,
+                    file: createReadStream(chunk.path),
+                    language,
+                    response_format: 'json',
+                    temperature: 0,
+                  });
+                }
+                throw err;
+              }
+            },
             { maxRetries: 2, baseDelayMs: 2000 },
           );
 
           // Filter silence before mapping (need raw Whisper fields)
+          // json format returns only { text }, verbose_json returns { segments }
           const rawSegments = (
             (response as unknown as { segments?: WhisperSegment[] }).segments ?? []
           ).filter(
@@ -135,6 +153,17 @@ const worker = new Worker<STTJobData>(
             data: { processingProgress: progress },
           });
           await job.updateProgress(progress);
+
+          // If json format (no segments), create a single segment from full text
+          if (rawSegments.length === 0 && response.text?.trim()) {
+            const chunkDuration = Math.min(CHUNK_DURATION, transcribeDuration - chunk.offsetSeconds);
+            return [{
+              start: chunk.offsetSeconds,
+              end: chunk.offsetSeconds + chunkDuration,
+              text: response.text.trim(),
+              confidence: 0.85,
+            }] as TranscriptSegment[];
+          }
 
           // Map to TranscriptSegment with chunk offset
           return rawSegments.map((raw): TranscriptSegment => ({
