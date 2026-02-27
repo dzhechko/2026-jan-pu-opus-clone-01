@@ -1,199 +1,83 @@
-import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { prisma } from '@clipmaker/db';
+'use client';
+
+import { useState } from 'react';
+import { trpc } from '@/lib/trpc/client';
 import { OverviewCards } from '@/components/analytics/overview-cards';
 import { PlatformTable } from '@/components/analytics/platform-table';
 import { TopClipsTable } from '@/components/analytics/top-clips-table';
 import { TimelineChart } from '@/components/analytics/timeline-chart';
 import { AnalyticsEmpty } from '@/components/analytics/analytics-empty';
+import { DateRangePicker } from '@/components/analytics/date-range-picker';
+import { RefreshCwIcon } from 'lucide-react';
 
-const TIMELINE_DAYS = 30;
-const TOP_CLIPS_LIMIT = 10;
+export default function AnalyticsPage() {
+  const [days, setDays] = useState(30);
 
-export default async function AnalyticsPage() {
-  const headerStore = await headers();
-  const userId = headerStore.get('x-user-id');
+  const utils = trpc.useUtils();
 
-  if (!userId) {
-    redirect('/login');
+  const overview = trpc.analytics.overview.useQuery();
+  const byPlatform = trpc.analytics.byPlatform.useQuery();
+  const topClips = trpc.analytics.topClips.useQuery({ limit: 10 });
+  const timeline = trpc.analytics.timeline.useQuery({ days });
+
+  const isLoading =
+    overview.isLoading || byPlatform.isLoading || topClips.isLoading || timeline.isLoading;
+
+  const isEmpty = !overview.data || overview.data.publishedCount === 0;
+
+  function handleRefresh() {
+    utils.analytics.invalidate();
   }
-
-  // Parallel queries for all analytics data
-  const [overview, byPlatform, topClips, timelineRaw] = await Promise.all([
-    // 1. Aggregate overview
-    prisma.publication.aggregate({
-      where: {
-        status: 'published',
-        clip: { userId },
-      },
-      _sum: {
-        views: true,
-        likes: true,
-        shares: true,
-      },
-      _count: true,
-    }),
-
-    // 2. Per-platform breakdown
-    prisma.publication.groupBy({
-      by: ['platform'],
-      where: {
-        status: 'published',
-        clip: { userId },
-      },
-      _sum: {
-        views: true,
-        likes: true,
-        shares: true,
-      },
-      _count: true,
-      orderBy: {
-        _sum: {
-          views: 'desc',
-        },
-      },
-    }),
-
-    // 3. Top clips
-    prisma.publication.findMany({
-      where: {
-        status: 'published',
-        clip: { userId },
-      },
-      orderBy: {
-        views: 'desc',
-      },
-      take: TOP_CLIPS_LIMIT,
-      select: {
-        id: true,
-        platform: true,
-        views: true,
-        likes: true,
-        shares: true,
-        publishedAt: true,
-        platformUrl: true,
-        clip: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-      },
-    }),
-
-    // 4. Timeline data
-    (() => {
-      const endDate = new Date();
-      endDate.setHours(23, 59, 59, 999);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - TIMELINE_DAYS + 1);
-      startDate.setHours(0, 0, 0, 0);
-
-      return prisma.publication.findMany({
-        where: {
-          status: 'published',
-          clip: { userId },
-          publishedAt: {
-            gte: startDate,
-            lte: endDate,
-          },
-        },
-        select: {
-          publishedAt: true,
-          views: true,
-        },
-      });
-    })(),
-  ]);
-
-  const totalViews = overview._sum.views ?? 0;
-  const totalLikes = overview._sum.likes ?? 0;
-  const totalShares = overview._sum.shares ?? 0;
-  const publishedCount = overview._count;
-  const isEmpty = publishedCount === 0;
-
-  // Build platform data
-  const platformData = byPlatform.map((g) => ({
-    platform: g.platform,
-    publicationCount: g._count,
-    totalViews: g._sum.views ?? 0,
-    totalLikes: g._sum.likes ?? 0,
-    totalShares: g._sum.shares ?? 0,
-  }));
-
-  // Build top clips data
-  const topClipsData = topClips.map((p) => ({
-    publicationId: p.id,
-    clipId: p.clip.id,
-    clipTitle: p.clip.title,
-    platform: p.platform,
-    views: p.views,
-    likes: p.likes,
-    shares: p.shares,
-    publishedAt: p.publishedAt,
-    platformUrl: p.platformUrl,
-  }));
-
-  // Build timeline data with day fill
-  const timelineData = buildTimeline(timelineRaw, TIMELINE_DAYS);
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold">Аналитика</h1>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h1 className="text-2xl font-bold">Аналитика</h1>
+        <div className="flex items-center gap-3">
+          <DateRangePicker value={days} onChange={setDays} />
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCwIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Обновить
+          </button>
+        </div>
+      </div>
 
-      {isEmpty ? (
+      {isLoading && !overview.data ? (
+        <div className="space-y-4">
+          {/* Skeleton cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-xl border bg-white p-6 shadow-sm animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-20 mb-3" />
+                <div className="h-8 bg-gray-200 rounded w-16" />
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border bg-white p-6 shadow-sm h-48 animate-pulse" />
+        </div>
+      ) : isEmpty ? (
         <AnalyticsEmpty />
       ) : (
         <>
           <OverviewCards
-            totalViews={totalViews}
-            totalLikes={totalLikes}
-            totalShares={totalShares}
-            publishedCount={publishedCount}
+            totalViews={overview.data!.totalViews}
+            totalLikes={overview.data!.totalLikes}
+            totalShares={overview.data!.totalShares}
+            publishedCount={overview.data!.publishedCount}
           />
 
-          <PlatformTable data={platformData} />
+          {byPlatform.data && <PlatformTable data={byPlatform.data} />}
 
-          <TopClipsTable clips={topClipsData} />
+          {topClips.data && <TopClipsTable clips={topClips.data} />}
 
-          <TimelineChart data={timelineData} />
+          {timeline.data && <TimelineChart data={timeline.data} days={days} />}
         </>
       )}
     </div>
   );
-}
-
-/**
- * Build a complete timeline array with all days filled (missing days get 0 views).
- */
-function buildTimeline(
-  publications: Array<{ publishedAt: Date | null; views: number }>,
-  days: number,
-): Array<{ date: string; views: number }> {
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(endDate.getDate() - days + 1);
-
-  const byDay = new Map<string, number>();
-
-  // Initialize all days with 0
-  for (let i = 0; i < days; i++) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + i);
-    const key = d.toISOString().slice(0, 10);
-    byDay.set(key, 0);
-  }
-
-  // Sum views per day
-  for (const pub of publications) {
-    if (!pub.publishedAt) continue;
-    const key = pub.publishedAt.toISOString().slice(0, 10);
-    if (byDay.has(key)) {
-      byDay.set(key, (byDay.get(key) ?? 0) + pub.views);
-    }
-  }
-
-  return Array.from(byDay.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, views]) => ({ date, views }));
 }

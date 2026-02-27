@@ -9,6 +9,7 @@ type TimelinePoint = {
 
 type TimelineChartProps = {
   data: TimelinePoint[];
+  days?: number;
 };
 
 function formatDateLabel(dateStr: string): string {
@@ -16,7 +17,7 @@ function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
-export function TimelineChart({ data }: TimelineChartProps) {
+export function TimelineChart({ data, days = 30 }: TimelineChartProps) {
   if (data.length === 0) return null;
 
   const maxViews = Math.max(...data.map((d) => d.views), 1);
@@ -28,7 +29,7 @@ export function TimelineChart({ data }: TimelineChartProps) {
   return (
     <section aria-label="Просмотры за период">
       <div className="flex items-baseline justify-between mb-4">
-        <h2 className="text-lg font-semibold">Просмотры за 30 дней</h2>
+        <h2 className="text-lg font-semibold">Просмотры за {days} дней</h2>
         <span className="text-sm text-gray-500">
           Всего: {formatNumber(totalViews)}
         </span>
