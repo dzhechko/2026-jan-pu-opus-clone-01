@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 
 const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
@@ -134,6 +135,7 @@ function chunks<T>(arr: T[], size: number): T[][] {
 }
 
 export function VideoUploader() {
+  const router = useRouter();
   const [mode, setMode] = useState<'file' | 'url'>('file');
   const [url, setUrl] = useState('');
   const [dragActive, setDragActive] = useState(false);
@@ -165,9 +167,8 @@ export function VideoUploader() {
   abortMutationRef.current = abortMutation;
 
   const urlMutation = trpc.video.createFromUrl.useMutation({
-    onSuccess: () => {
-      // TODO: navigate to video page when routing is set up
-      setUploadState('done');
+    onSuccess: (video) => {
+      router.push(`/dashboard/videos/${video.id}`);
     },
     onError: (err) => setError(err.message),
   });
@@ -366,10 +367,10 @@ export function VideoUploader() {
           return;
         }
 
-        // Confirm upload → start processing
+        // Confirm upload → start processing → redirect to video page
         setUploadStateSync('confirming');
         await confirmMutationRef.current.mutateAsync({ videoId: result.video.id });
-        setUploadStateSync('done');
+        router.push(`/dashboard/videos/${result.video.id}`);
       } catch (err) {
         const message = (err as Error).message;
 
